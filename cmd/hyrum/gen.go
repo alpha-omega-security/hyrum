@@ -55,6 +55,11 @@ func cmdGen(args []string) error {
 	ctx := context.Background()
 	rc := registries.DefaultClient()
 
+	idx, err := hyrum.BuildHistoryIndex(ctx, t, selected)
+	if err != nil {
+		return fmt.Errorf("history index: %w", err)
+	}
+
 	for _, d := range selected {
 		ws := filepath.Join(*work, d.Ecosystem, d.Name)
 		depDir, err := stageContext(ctx, t, d, ws, rc)
@@ -62,7 +67,7 @@ func cmdGen(args []string) error {
 			fmt.Fprintf(os.Stderr, "  %s: stage: %v\n", d.Name, err)
 			continue
 		}
-		if err := hyrum.GatherHistory(ctx, t, d, depDir, ws); err != nil {
+		if err := hyrum.GatherHistory(ctx, idx, d, depDir, ws); err != nil {
 			fmt.Fprintf(os.Stderr, "  %s: history: %v\n", d.Name, err)
 		}
 		if !*run {
