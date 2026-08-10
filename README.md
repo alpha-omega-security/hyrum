@@ -38,6 +38,17 @@ production does. "The library has its own tests" is the Hyrum's Law gap: a
 library's tests cover the contract its maintainers intend, which routinely
 omits behaviour a caller has come to rely on.
 
+## Install
+
+```
+go install github.com/alpha-omega-security/hyrum/cmd/hyrum@latest
+```
+
+Go 1.26 or later. `git` must be on PATH. For `gen --run` and `corpus --run`
+you also need one of the [harness](https://github.com/alpha-omega-security/harness)
+backends installed and authenticated (`claude`, `codex`, `copilot`, or
+`opencode`); pass it with `--backend`.
+
 ## Usage
 
 ```
@@ -107,14 +118,6 @@ importable name (composer PSR-4, Rails autoload, PyYAML→yaml);
 [git-pkgs/provides](https://github.com/git-pkgs/provides) will supply exact
 mappings and outline's structured `Imports()` will replace the text scan, at
 which point per-ecosystem code here drops to a registration line.
-
-## Build
-
-```
-go build ./cmd/hyrum
-```
-
-Go 1.26 or later.
 
 ## License
 
