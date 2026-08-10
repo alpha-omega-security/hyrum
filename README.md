@@ -70,13 +70,43 @@ affected-function list turns a noisy advisory into a reachable/unreachable
 call. For a dependency held back by an upper-bound pin, `hyrum check --dep
 X@<blocked>` prints the specific failing behaviours instead of just a red CI.
 
-## Dependencies
+## Ecosystems
 
-Toolchain detection, manifest parsing, registry lookup, cloning, source
-outlining, changelog parsing, and OSV lookup come from the
-[git-pkgs](https://github.com/git-pkgs) libraries. LLM invocation goes through
-[harness](https://github.com/alpha-omega-security/harness), so the backend is
-`claude`, `codex`, `copilot`, or `opencode` behind a `--backend` flag.
+hyrum owns almost no per-ecosystem code. Toolchain detection
+([brief](https://github.com/git-pkgs/brief)), manifest and lockfile parsing
+([manifests](https://github.com/git-pkgs/manifests), 44 formats), registry
+metadata ([registries](https://github.com/git-pkgs/registries), 25
+ecosystems), package-manager operations
+([managers](https://github.com/git-pkgs/managers), 36 CLIs), source outlining
+([outline](https://github.com/git-pkgs/outline), 35 languages via
+tree-sitter), changelog parsing, OSV lookup, and cloning all come from
+[git-pkgs](https://github.com/git-pkgs). Dependent discovery for `corpus`
+comes from [ecosyste.ms](https://ecosyste.ms) via
+[enrichment](https://github.com/git-pkgs/enrichment). LLM invocation goes
+through [harness](https://github.com/alpha-omega-security/harness), so the
+backend is `claude`, `codex`, `copilot`, or `opencode` behind a `--backend`
+flag.
+
+The one per-ecosystem piece hyrum carries is a usage indexer that maps a
+dependency name to the target files that import it. Registered ecosystems:
+
+| Ecosystem | Languages | Entry-point matching |
+|---|---|---|
+| npm | JavaScript, TypeScript | `require()`, `import`, chained `.member` |
+| pypi | Python | `import`, `from ... import`, attribute access |
+| golang | Go | `import "module/path"` |
+| gem | Ruby | `require 'gem'` |
+| cargo | Rust | `use crate::` |
+| composer | PHP | `use Vendor\...` (PSR-4 heuristic) |
+| hex | Elixir | `alias`/`import`/`use Module` |
+
+Adding another is a `Register` call in `internal/hyrum/usage/generic.go` with
+an extension set and a match function against the lines outline preserves.
+The match functions are heuristic where a package name does not equal an
+importable name (composer PSR-4, Rails autoload, PyYAML→yaml);
+[git-pkgs/provides](https://github.com/git-pkgs/provides) will supply exact
+mappings and outline's structured `Imports()` will replace the text scan, at
+which point per-ecosystem code here drops to a registration line.
 
 ## Build
 

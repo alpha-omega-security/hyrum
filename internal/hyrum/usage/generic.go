@@ -36,6 +36,14 @@ func init() {
 		exts:  set(".rs"),
 		match: rustUseMatch,
 	})
+	Register("composer", outlineIndexer{
+		exts:  set(".php"),
+		match: phpUseMatch,
+	})
+	Register("hex", outlineIndexer{
+		exts:  set(".ex", ".exs"),
+		match: elixirMatch,
+	})
 }
 
 var genericSkipDirs = map[string]bool{
@@ -146,6 +154,40 @@ func rustUseMatch(line, dep string) bool {
 				if after == "" || after[0] == ':' || after[0] == ';' || after[0] == ' ' {
 					return true
 				}
+			}
+		}
+	}
+	return false
+}
+
+// phpUseMatch matches `use Vendor\...` where Vendor is derived from the
+// composer package name. Composer names are `vendor/package`; PSR-4 namespaces
+// are usually the vendor segment titlecased (guzzlehttp/guzzle → GuzzleHttp\).
+// The exact autoload map is a git-pkgs/provides concern.
+func phpUseMatch(line, dep string) bool {
+	if !strings.HasPrefix(line, "use ") {
+		return false
+	}
+	vendor := dep
+	if i := strings.IndexByte(dep, '/'); i > 0 {
+		vendor = dep[:i]
+	}
+	ns := strings.ToLower(strings.TrimPrefix(line, "use "))
+	return strings.HasPrefix(ns, strings.ToLower(vendor)) ||
+		strings.HasPrefix(ns, strings.ToLower(strings.ReplaceAll(vendor, "-", "")))
+}
+
+// elixirMatch matches `alias/import/use/require Mod` where Mod is the
+// titlecased hex package name. jason → Jason, phoenix_html → PhoenixHtml or
+// Phoenix.Html; matching is prefix-insensitive on the first segment.
+func elixirMatch(line, dep string) bool {
+	for _, kw := range []string{"alias ", "import ", "use ", "require "} {
+		if strings.HasPrefix(line, kw) {
+			rest := strings.TrimPrefix(line, kw)
+			seg, _, _ := strings.Cut(rest, ".")
+			seg = strings.TrimRight(seg, ",")
+			if strings.EqualFold(seg, strings.ReplaceAll(dep, "_", "")) {
+				return true
 			}
 		}
 	}
