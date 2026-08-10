@@ -126,11 +126,10 @@ func WriteFiles(root string, files []GeneratedFile) ([]string, error) {
 }
 
 // headlessSystemPrompt is written to the backend's project-instructions file
-// (AGENTS.md, CLAUDE.md, etc.) in the workspace. It establishes that no human
-// is present to answer questions, so a rule the user has configured for
-// interactive sessions ("stop and ask on error", "confirm before X") does not
-// leave the run waiting on input that will never arrive. Container isolation
-// is the cleaner long-term fix; this covers host-mode runs.
+// (AGENTS.md, CLAUDE.md, etc.) in the workspace. Backends read the user's
+// global agent config from HOME; a rule written for interactive sessions
+// ("stop and ask on error", "confirm before X") would otherwise leave a
+// headless run waiting on input that never arrives.
 const headlessSystemPrompt = `This is a non-interactive batch run with no human available.
 
 Questions, confirmation prompts, and permission requests cannot be answered. If a command fails, correct it and retry. Complete the named skill and write its output file; exiting without that file is treated as a failure.

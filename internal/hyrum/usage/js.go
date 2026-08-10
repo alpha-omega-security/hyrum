@@ -9,10 +9,9 @@ import (
 	"strings"
 )
 
-// jsIndexer covers npm-ecosystem source (JavaScript and TypeScript). This is
-// the spike implementation: regex over source files. It is deliberately
-// shallow; the tree-sitter version replaces the body of scanFile without
-// changing the Indexer contract.
+// jsIndexer covers npm-ecosystem source (JavaScript and TypeScript). It finds
+// import/require entry points and same-file member accesses on the resulting
+// bindings; it does not follow values across files or into instances.
 type jsIndexer struct{}
 
 func init() { Register("npm", jsIndexer{}) }

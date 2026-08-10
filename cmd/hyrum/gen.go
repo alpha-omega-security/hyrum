@@ -15,11 +15,10 @@ import (
 	"github.com/git-pkgs/registries"
 )
 
-// cmdGen runs the generation pipeline for one or more dependencies. In the
-// spike this assembles the context bundle (usage surface + dep outline) and
-// stages a harness.Job for the hyrum-generate skill; actually invoking the
-// backend is gated behind --run so the wiring can be exercised without
-// spending tokens.
+// cmdGen runs the generation pipeline for one or more dependencies: stage the
+// context bundle, gather history inputs, then run the usage/history/generate
+// skills in sequence. Without --run it stops after staging so the workspace
+// can be inspected without invoking a backend.
 func cmdGen(args []string) error {
 	fs := newFlags("gen")
 	var deps stringList

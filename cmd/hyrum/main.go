@@ -7,8 +7,6 @@
 //	gen       generate tests for one or all direct dependencies
 //	check     run existing tests/hyrum against a candidate dependency version
 //	corpus    build a producer-side corpus for one upstream across N dependents
-//
-// The spike implements surface end to end and stubs the rest.
 package main
 
 import (
