@@ -14,6 +14,7 @@ import (
 	"github.com/git-pkgs/clone"
 	"github.com/git-pkgs/outline"
 	"github.com/git-pkgs/registries"
+	_ "github.com/git-pkgs/registries/all" // register every ecosystem's init()
 )
 
 // cmdGen runs the generation pipeline for one or more dependencies: stage the
