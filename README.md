@@ -26,11 +26,11 @@ Testing your dependencies used to be bad advice for a cost reason: writing and
 maintaining hundreds of tests against someone else's API was more
 engineer-hours than the breakage it prevented. LLM generation and regeneration
 turn that into a token spend, and coupling to a dependency's behaviour is fine
-when uncoupling is cheap. The other objections were never really about cost.
-"You can't fix the library" misreads the goal, which is finding out you're
-broken before production does; "the library has its own tests" is the Hyrum's
-Law gap this exists to close, since a library's tests cover what its
-maintainers think the contract is, not what you actually depend on.
+when uncoupling is cheap. Of the remaining objections, "you can't fix the
+library" misreads the goal, which is finding out you're broken before
+production does. "The library has its own tests" is the Hyrum's Law gap: a
+library's tests cover the contract its maintainers intend, which routinely
+omits behaviour a caller has come to rely on.
 
 ## Usage
 
@@ -58,12 +58,11 @@ open-source project something like Rust's crater run without needing to build
 every downstream: hermetic per-consumer contract tests that finish in seconds.
 The same suite in a consumer's CI catches breakage on the next dependabot PR.
 
-The `surface` output is useful without the generation step. The used-symbol
-count per dependency ranks vendoring candidates. Intersecting the used-symbol
-set with a CVE's affected functions turns a noisy advisory into "reachable" or
-"not reachable from your code". Running `gen` against a version that an
-upper-bound pin is blocking gives the concrete list of failing behaviours
-holding the upgrade back.
+The `surface` data has uses on its own: the per-dependency used-symbol count
+ranks vendoring candidates, and intersecting the used-symbol set with a CVE's
+affected-function list turns a noisy advisory into a reachable/unreachable
+call. For a dependency held back by an upper-bound pin, `hyrum check --dep
+X@<blocked>` prints the specific failing behaviours instead of just a red CI.
 
 ## Dependencies
 
