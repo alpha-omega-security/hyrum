@@ -203,6 +203,11 @@ func stageContext(ctx context.Context, t *hyrum.Target, d hyrum.Dep, ws string, 
 	if err := clone.Ensure(ctx, clone.Retry{}, repoURL, depDir, "", true); err != nil {
 		return "", fmt.Errorf("clone %s: %w", repoURL, err)
 	}
+	// The dep clone is ours to modify; remove any CLAUDE.md/AGENTS.md/.claude
+	// so the cloned repository cannot inject instructions into the skill run.
+	if _, err := hyrum.StripAgentDirectives(depDir); err != nil {
+		return depDir, fmt.Errorf("strip %s: %w", depDir, err)
+	}
 	res, err := outline.Pack(depDir, outline.Options{Compress: true})
 	if err != nil {
 		return depDir, fmt.Errorf("outline: %w", err)
