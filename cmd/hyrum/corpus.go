@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 
 	"github.com/alpha-omega-security/harness"
 	"github.com/alpha-omega-security/hyrum/internal/hyrum"
@@ -108,8 +107,14 @@ func discoverDependents(ctx context.Context, rc *registries.Client, upstream, re
 	if err != nil {
 		return nil, err
 	}
+	// Over-fetch so filtering and ranking have a pool to work with;
+	// ecosyste.ms does not return dependents pre-sorted by popularity.
+	pool := n * 10
+	if pool < 50 {
+		pool = 50
+	}
 	cands, err := dependents.DiscoverRepository(ctx, ec, repo, dependents.DiscoverOptions{
-		MaxDependentsPerPackage: n * 4,
+		MaxDependentsPerPackage: pool,
 	})
 	if err != nil {
 		return nil, err
@@ -119,14 +124,14 @@ func discoverDependents(ctx context.Context, rc *registries.Client, upstream, re
 		ExcludeArchived: true,
 		ExcludeMirrors:  true,
 	})
-	sort.Slice(kept, func(i, j int) bool { return kept[i].Downloads > kept[j].Downloads })
+	ranked := dependents.Rank(kept, 0, dependents.PopularityScore)
 	var out []string
-	for _, c := range kept {
+	for _, c := range ranked {
 		if c.Repository == "" {
 			continue
 		}
 		out = append(out, c.Repository)
-		fmt.Fprintf(os.Stderr, "  discovered %s (%d downloads)\n", c.Repository, c.Downloads)
+		fmt.Fprintf(os.Stderr, "  discovered %s (score %d)\n", c.Repository, dependents.PopularityScore(c))
 		if len(out) >= n {
 			break
 		}
