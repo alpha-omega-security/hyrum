@@ -1,0 +1,17 @@
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      git-pkgs:
+        patterns:
+          - "github.com/git-pkgs/*"
+      alpha-omega:
+        patterns:
+          - "github.com/alpha-omega-security/*"
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
