@@ -1,0 +1,26 @@
+# hyrum config. Copy to hyrum.yaml or point at it with --config.
+# All keys optional; command-line flags win.
+
+# Harness backend for LLM-driven skills.
+# backend: claude          # claude | codex | copilot | opencode
+
+# Per-skill model tier. Keys match skills/<name>/.
+# models:
+#   hyrum-usage:    mid
+#   hyrum-history:  mid
+#   hyrum-generate: high
+#   hyrum-validate: mid
+
+# Where generated tests are written, relative to the target repo.
+# out: tests/hyrum
+
+# Working directory for dep clones and skill workspaces.
+# work: ~/.cache/hyrum
+
+# Per-dependency overrides. Keys are package names or purls.
+# deps:
+#   ws:
+#     baseline: 8.17.1     # version to validate generated tests against
+#     skip: false
+#   pkg:npm/lodash:
+#     skip: true           # too large / not worth generating for

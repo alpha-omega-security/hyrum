@@ -1,0 +1,4 @@
+/hyrum
+/hyrum.yaml
+*.test
+.DS_Store
