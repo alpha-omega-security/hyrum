@@ -276,12 +276,12 @@ func manifestPaths(t *Target) []string {
 // best-effort: a missing changelog or an OSV error results in an absent
 // file rather than a hard failure, because hyrum-history treats every input
 // as optional.
-func GatherHistory(ctx context.Context, idx *HistoryIndex, d Dep, depDir, ws string) error {
+func GatherHistory(ctx context.Context, idx *HistoryIndex, d Dep, depDir, latest, ws string) error {
 	if err := idx.WriteGitLog(d.Name, filepath.Join(ws, "git-log.txt")); err != nil {
 		return err
 	}
 	if depDir != "" {
-		writeChangelog(depDir, filepath.Join(ws, "changelog.json"))
+		writeChangelog(depDir, filepath.Join(ws, "changelog.json"), d.Version, latest)
 	}
 	writeVulns(ctx, d.PURL, filepath.Join(ws, "vulns.json"))
 	return nil
@@ -293,10 +293,20 @@ type changelogEntry struct {
 	Body    string `json:"body"`
 }
 
-func writeChangelog(depDir, out string) {
+func writeChangelog(depDir, out, from, to string) {
 	p, err := changelog.FindAndParse(depDir)
 	if err != nil || p == nil {
 		return
+	}
+	// When both endpoints look like exact versions that could appear as
+	// changelog headers, slice to the range so hyrum-history reads only
+	// what changed between the target's baseline and latest instead of
+	// every entry the file has.
+	if isExactVersion(from) && isExactVersion(to) {
+		if body, ok := p.Between(from, to); ok && body != "" {
+			writeJSONFile(out, []changelogEntry{{Version: from + ".." + to, Body: body}})
+			return
+		}
 	}
 	var entries []changelogEntry
 	for _, v := range p.Versions() {
@@ -311,6 +321,19 @@ func writeChangelog(depDir, out string) {
 		entries = append(entries, changelogEntry{Version: v, Date: date, Body: e.Content})
 	}
 	writeJSONFile(out, entries)
+}
+
+// isExactVersion reports whether v looks like a resolved version rather than
+// a range constraint (^, ~, >=, *) or an empty string.
+func isExactVersion(v string) bool {
+	if v == "" {
+		return false
+	}
+	c := v[0]
+	if c >= '0' && c <= '9' {
+		return true
+	}
+	return (c == 'v' || c == 'V') && len(v) > 1 && v[1] >= '0' && v[1] <= '9'
 }
 
 func writeVulns(ctx context.Context, purlStr, out string) {

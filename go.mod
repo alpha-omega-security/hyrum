@@ -5,7 +5,7 @@ go 1.26
 require (
 	github.com/alpha-omega-security/harness v0.1.4
 	github.com/git-pkgs/brief v0.9.4
-	github.com/git-pkgs/changelog v0.1.3
+	github.com/git-pkgs/changelog v0.2.0
 	github.com/git-pkgs/clone v0.2.1
 	github.com/git-pkgs/dependents v0.0.0-20260810185351-ddfe65bb8fe8
 	github.com/git-pkgs/enrichment v0.6.5

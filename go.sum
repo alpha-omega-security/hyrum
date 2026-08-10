@@ -17,8 +17,8 @@ github.com/ecosyste-ms/ecosystems-go v0.4.0 h1:5A+zF+XWT8sYYYjlc2/tI1SmiDGzbHLyT
 github.com/ecosyste-ms/ecosystems-go v0.4.0/go.mod h1:FVswCrp3DQkur1HjVqfDF/gYrDSEmiFflntcB1G0DbA=
 github.com/git-pkgs/brief v0.9.4 h1:i6jqzavPAt5QNuA7JzTkenuNB25/CTPp77fRZvqZqVQ=
 github.com/git-pkgs/brief v0.9.4/go.mod h1:j7qjRMVHVAniVpZff4/Dbg79kIUDJRCuXZJ9H2xrgF4=
-github.com/git-pkgs/changelog v0.1.3 h1:iaFrl76F9lE3B9bQBZCpm0O+eB6tQ0ajMnrc5l7/EhU=
-github.com/git-pkgs/changelog v0.1.3/go.mod h1:psv6VJyJKYzDYajKdV9oPw7LUEOIqSiB0L3wcKdX6Ac=
+github.com/git-pkgs/changelog v0.2.0 h1:9THaZA38qg24Qpuf/kf01OKduWHaNuanbxPp/GJ7NLU=
+github.com/git-pkgs/changelog v0.2.0/go.mod h1:4R1qfD9+PVbzlRd2h9SRBOYFLtUXI8N+VcDrYpErI90=
 github.com/git-pkgs/clone v0.2.1 h1:9Hl3UgMpGwYGlsUYR2KbMexISMTCDV5/1L7r1FFA/lw=
 github.com/git-pkgs/clone v0.2.1/go.mod h1:lgbobKgJ6XbPZPsbn4iK0fVskYpFr4stjKKCeG9RsRc=
 github.com/git-pkgs/dependents v0.0.0-20260810185351-ddfe65bb8fe8 h1:QgLZ9qVJzBkgr+0sPSrfbjOt9hrJ+/BBpAtmbVULz6E=

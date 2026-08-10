@@ -106,11 +106,11 @@ func (p *pipeline) genAll(ctx context.Context, t *hyrum.Target, deps []hyrum.Dep
 
 func (p *pipeline) genOne(ctx context.Context, t *hyrum.Target, idx *hyrum.HistoryIndex, d hyrum.Dep) error {
 	ws := filepath.Join(p.work, targetName(t), d.Ecosystem, d.Name)
-	depDir, err := stageContext(ctx, t, d, ws, p.rc)
+	depDir, latest, err := stageContext(ctx, t, d, ws, p.rc)
 	if err != nil {
 		return fmt.Errorf("stage: %w", err)
 	}
-	if err := hyrum.GatherHistory(ctx, idx, d, depDir, ws); err != nil {
+	if err := hyrum.GatherHistory(ctx, idx, d, depDir, latest, ws); err != nil {
 		fmt.Fprintf(os.Stderr, "  %s: history: %v\n", d.Name, err)
 	}
 	if !p.run {
@@ -222,33 +222,36 @@ func remoteBasename(url string) string {
 //	ws/usage.json         usage.Index of target against dep
 //	ws/context.json       purl, versions, ecosystem
 //
-// Returns the dep clone directory (empty when no repo URL was found) so
-// callers can pass it to GatherHistory for changelog discovery.
-func stageContext(ctx context.Context, t *hyrum.Target, d hyrum.Dep, ws string, rc *registries.Client) (string, error) {
+// Returns the dep clone directory (empty when no repo URL was found) and the
+// dep's latest version from the registry, so callers can pass both to
+// GatherHistory for changelog discovery and range slicing.
+func stageContext(ctx context.Context, t *hyrum.Target, d hyrum.Dep, ws string, rc *registries.Client) (depDir, latest string, err error) {
 	if err := os.MkdirAll(ws, 0o755); err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	// Target: symlink so the skill sees the real tree without a copy.
 	targetLink := filepath.Join(ws, "target")
 	_ = os.Remove(targetLink)
 	if err := os.Symlink(t.Path, targetLink); err != nil {
-		return "", fmt.Errorf("link target: %w", err)
+		return "", "", fmt.Errorf("link target: %w", err)
 	}
 
 	// Usage surface (works even without the dep clone).
 	surf, err := usage.Index(d.Ecosystem, t.Path, d.Name)
 	if err != nil {
-		return "", fmt.Errorf("usage: %w", err)
+		return "", "", fmt.Errorf("usage: %w", err)
 	}
 	surf.PURL = d.PURL
 	if err := writeJSON(filepath.Join(ws, "usage.json"), surf); err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	// Dep source + outline: best-effort. Registries gives the repo URL;
 	// clone.Ensure gives a shallow checkout; outline.Pack reduces it.
-	repoURL, latest, rerr := lookupRepo(ctx, rc, d)
+	var repoURL string
+	var rerr error
+	repoURL, latest, rerr = lookupRepo(ctx, rc, d)
 	meta := map[string]any{
 		"purl":      d.PURL,
 		"name":      d.Name,
@@ -261,12 +264,12 @@ func stageContext(ctx context.Context, t *hyrum.Target, d hyrum.Dep, ws string, 
 		meta["registry_error"] = rerr.Error()
 	}
 	if err := writeJSON(filepath.Join(ws, "context.json"), meta); err != nil {
-		return "", err
+		return "", latest, err
 	}
 	if repoURL == "" {
-		return "", nil
+		return "", latest, nil
 	}
-	depDir := filepath.Join(ws, "dep")
+	depDir = filepath.Join(ws, "dep")
 	// Full clone: hyrum-history diffs between version tags and reads
 	// History.md at old refs, which a shallow clone cannot serve. The dep
 	// clone is reused across runs via Ensure so the cost is one-time.
@@ -275,27 +278,27 @@ func stageContext(ctx context.Context, t *hyrum.Target, d hyrum.Dep, ws string, 
 	// usage.json and git-log.txt only.
 	if err := clone.Ensure(ctx, clone.Retry{}, repoURL, depDir, "", true); err != nil {
 		fmt.Fprintf(os.Stderr, "  clone %s: %v (continuing without dep source)\n", repoURL, err)
-		return "", nil
+		return "", latest, nil
 	}
 	// The dep clone is ours to modify; remove any CLAUDE.md/AGENTS.md/.claude
 	// so the cloned repository cannot inject instructions into the skill run.
 	if _, err := hyrum.StripAgentDirectives(depDir); err != nil {
-		return depDir, fmt.Errorf("strip %s: %w", depDir, err)
+		return depDir, latest, fmt.Errorf("strip %s: %w", depDir, err)
 	}
 	res, err := outline.Pack(depDir, outline.Options{Compress: true})
 	if err != nil {
-		return depDir, fmt.Errorf("outline: %w", err)
+		return depDir, latest, fmt.Errorf("outline: %w", err)
 	}
 	meta["exported_symbols"] = countExported(res)
 	if err := writeJSON(filepath.Join(ws, "context.json"), meta); err != nil {
-		return depDir, err
+		return depDir, latest, err
 	}
 	f, err := os.Create(filepath.Join(ws, "dep-outline.md"))
 	if err != nil {
-		return depDir, err
+		return depDir, latest, err
 	}
 	defer f.Close()
-	return depDir, res.Markdown(f)
+	return depDir, latest, res.Markdown(f)
 }
 
 // countExported returns the number of exported top-level declarations across
