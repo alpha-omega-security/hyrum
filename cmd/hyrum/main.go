@@ -59,7 +59,7 @@ Usage:
 }
 
 func notYet(name string) error {
-	return fmt.Errorf("%s: not implemented in the spike; see docs/design.md", name)
+	return fmt.Errorf("%s: not implemented yet", name)
 }
 
 // stringList is a repeatable string flag.

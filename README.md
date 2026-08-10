@@ -9,9 +9,6 @@ LLM-driven steps and the [git-pkgs](https://github.com/git-pkgs) libraries for
 toolchain detection, manifest parsing, registry lookup, cloning, and source
 outlining.
 
-Spike status. See `docs/design.md` for the plan and `docs/background.md` for
-the use cases that motivated it.
-
 ## Build
 
 ```
@@ -29,5 +26,3 @@ hyrum surface <path>              # per-dep usage summary (no LLM)
 hyrum surface <path> --dep ws     # symbol-level detail for one dep
 hyrum gen <path> --dep ws         # stage generation context; --run to invoke backend
 ```
-
-`hyrum check` and `hyrum corpus` are not implemented yet.
