@@ -27,7 +27,7 @@ func main() {
 	case "gen":
 		err = cmdGen(os.Args[2:])
 	case "check":
-		err = notYet("check")
+		err = cmdCheck(os.Args[2:])
 	case "corpus":
 		err = notYet("corpus")
 	case "help", "-h", "--help":

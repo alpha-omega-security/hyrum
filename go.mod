@@ -7,6 +7,7 @@ require (
 	github.com/git-pkgs/brief v0.9.4
 	github.com/git-pkgs/changelog v0.1.3
 	github.com/git-pkgs/clone v0.2.1
+	github.com/git-pkgs/managers v0.10.1
 	github.com/git-pkgs/outline v0.1.9-0.20260810165341-067044f36246
 	github.com/git-pkgs/purl v0.1.15
 	github.com/git-pkgs/registries v0.6.4
