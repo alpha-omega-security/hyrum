@@ -56,10 +56,11 @@ func RunSkillWithEmit(ctx context.Context, h harness.Harness, ws, name, outputFi
 	}
 
 	job := harness.Job{
-		Workspace:  ws,
-		SrcDir:     "target",
-		SkillName:  name,
-		OutputFile: outputFile,
+		Workspace:    ws,
+		SrcDir:       "target",
+		SkillName:    name,
+		OutputFile:   outputFile,
+		SystemPrompt: headlessSystemPrompt,
 	}
 
 	// Backends that do not report a price (codex) still report token usage;
@@ -123,6 +124,17 @@ func WriteFiles(root string, files []GeneratedFile) ([]string, error) {
 	}
 	return written, nil
 }
+
+// headlessSystemPrompt is written to the backend's project-instructions file
+// (AGENTS.md, CLAUDE.md, etc.) in the workspace. It establishes that no human
+// is present to answer questions, so a rule the user has configured for
+// interactive sessions ("stop and ask on error", "confirm before X") does not
+// leave the run waiting on input that will never arrive. Container isolation
+// is the cleaner long-term fix; this covers host-mode runs.
+const headlessSystemPrompt = `This is a non-interactive batch run with no human available.
+
+Questions, confirmation prompts, and permission requests cannot be answered. If a command fails, correct it and retry. Complete the named skill and write its output file; exiting without that file is treated as a failure.
+`
 
 func defaultEmit(e harness.Event) {
 	switch e.Kind {
