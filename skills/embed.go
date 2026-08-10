@@ -43,15 +43,3 @@ func Stage(h harness.Harness, workspace, name string) (string, error) {
 	}
 	return dst, nil
 }
-
-// Names returns the embedded skill names.
-func Names() []string {
-	entries, _ := fs.ReadDir(FS, ".")
-	var out []string
-	for _, e := range entries {
-		if e.IsDir() {
-			out = append(out, e.Name())
-		}
-	}
-	return out
-}

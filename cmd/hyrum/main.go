@@ -19,9 +19,13 @@ import (
 )
 
 func main() {
+	os.Exit(run())
+}
+
+func run() int {
 	if len(os.Args) < 2 {
 		printUsage()
-		os.Exit(2)
+		return 2
 	}
 	// Cancel the context on SIGINT/SIGTERM so harness.Run's cmd.Cancel
 	// terminates the backend's process group; without this a kill of hyrum
@@ -41,16 +45,17 @@ func main() {
 		err = cmdCorpus(ctx, os.Args[2:])
 	case "help", "-h", "--help":
 		printUsage()
-		return
+		return 0
 	default:
 		fmt.Fprintf(os.Stderr, "hyrum: unknown subcommand %q\n\n", os.Args[1])
 		printUsage()
-		os.Exit(2)
+		return 2
 	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "hyrum %s: %v\n", os.Args[1], err)
-		os.Exit(1)
+		return 1
 	}
+	return 0
 }
 
 func printUsage() {

@@ -274,7 +274,7 @@ func stageContext(ctx context.Context, t *hyrum.Target, d hyrum.Dep, ws string, 
 func countExported(r *outline.Result) int {
 	n := 0
 	for _, f := range r.Files {
-		if strings.Contains(f.Path, "/test") || strings.HasSuffix(f.Path, "_test.go") {
+		if isTestPath(f.Path) {
 			continue
 		}
 		for _, s := range f.Symbols {
@@ -284,6 +284,19 @@ func countExported(r *outline.Result) int {
 		}
 	}
 	return n
+}
+
+func isTestPath(p string) bool {
+	if strings.HasSuffix(p, "_test.go") {
+		return true
+	}
+	for _, seg := range strings.Split(p, "/") {
+		switch seg {
+		case "test", "tests", "spec", "specs", "__tests__":
+			return true
+		}
+	}
+	return false
 }
 
 func lookupRepo(ctx context.Context, rc *registries.Client, d hyrum.Dep) (repoURL, latest string, err error) {

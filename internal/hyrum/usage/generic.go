@@ -224,9 +224,15 @@ func elixirMatch(line, dep string) bool {
 	for _, kw := range []string{"alias ", "import ", "use ", "require "} {
 		if strings.HasPrefix(line, kw) {
 			rest := strings.TrimPrefix(line, kw)
-			seg, _, _ := strings.Cut(rest, ".")
-			seg = strings.TrimRight(seg, ",")
-			if strings.EqualFold(seg, strings.ReplaceAll(dep, "_", "")) {
+			// Module name ends at the first '.', ',', or space.
+			end := len(rest)
+			for i, r := range rest {
+				if r == '.' || r == ',' || r == ' ' {
+					end = i
+					break
+				}
+			}
+			if strings.EqualFold(rest[:end], strings.ReplaceAll(dep, "_", "")) {
 				return true
 			}
 		}
