@@ -55,6 +55,11 @@ func TestRunSkillWritesFiles(t *testing.T) {
 			t.Errorf("%s not staged: %v", f, err)
 		}
 	}
+	// schema.json is also mirrored at the workspace root so ./schema.json in
+	// the skill text resolves.
+	if _, err := os.Stat(filepath.Join(ws, "schema.json")); err != nil {
+		t.Errorf("schema.json not mirrored to workspace root: %v", err)
+	}
 
 	out := t.TempDir()
 	written, err := WriteFiles(out, res.Output.Files)

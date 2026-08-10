@@ -44,8 +44,15 @@ func RunSkill(ctx context.Context, h harness.Harness, ws, name, outputFile strin
 
 // RunSkillWithEmit is RunSkill with a caller-provided event sink.
 func RunSkillWithEmit(ctx context.Context, h harness.Harness, ws, name, outputFile string, emit func(harness.Event)) (*RunResult, error) {
-	if _, err := skills.Stage(h, ws, name); err != nil {
+	skillDir, err := skills.Stage(h, ws, name)
+	if err != nil {
 		return nil, fmt.Errorf("stage skill: %w", err)
+	}
+	// SKILL.md files reference ./schema.json relative to the workspace root;
+	// the backend discovers the skill under SkillDir. Mirror the schema so
+	// the path in the instructions is correct regardless of backend layout.
+	if b, err := os.ReadFile(filepath.Join(skillDir, "schema.json")); err == nil {
+		_ = os.WriteFile(filepath.Join(ws, "schema.json"), b, 0o644)
 	}
 
 	job := harness.Job{

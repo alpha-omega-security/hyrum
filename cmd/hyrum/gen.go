@@ -186,7 +186,10 @@ func stageContext(ctx context.Context, t *hyrum.Target, d hyrum.Dep, ws string, 
 		return "", nil
 	}
 	depDir := filepath.Join(ws, "dep")
-	if err := clone.Ensure(ctx, clone.Retry{}, repoURL, depDir, "", false); err != nil {
+	// Full clone: hyrum-history diffs between version tags and reads
+	// History.md at old refs, which a shallow clone cannot serve. The dep
+	// clone is reused across runs via Ensure so the cost is one-time.
+	if err := clone.Ensure(ctx, clone.Retry{}, repoURL, depDir, "", true); err != nil {
 		return "", fmt.Errorf("clone %s: %w", repoURL, err)
 	}
 	res, err := outline.Pack(depDir, outline.Options{Compress: true})
