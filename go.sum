@@ -1,7 +1,7 @@
 github.com/BurntSushi/toml v1.6.0 h1:dRaEfpa2VI55EwlIW72hMRHdWouJeRF7TPYhI+AUQjk=
 github.com/BurntSushi/toml v1.6.0/go.mod h1:ukJfTF/6rtPPRCnwkur4qwRxa8vTRFBF0uk2lLoLwho=
-github.com/alpha-omega-security/harness v0.1.3 h1:laXc9TRrHZhscWBEQr1xqGFGhId+FNFHea0fmyQ+d5Q=
-github.com/alpha-omega-security/harness v0.1.3/go.mod h1:/nym/38ro7lLq4jVmQhYqblV+0uMo3YpeueqaXNMpOs=
+github.com/alpha-omega-security/harness v0.1.4 h1:b7xmJ3ox6rhrIkuDJjPQMPEsoKcHbbSkxX6WRQfteS0=
+github.com/alpha-omega-security/harness v0.1.4/go.mod h1:/nym/38ro7lLq4jVmQhYqblV+0uMo3YpeueqaXNMpOs=
 github.com/bazelbuild/buildtools v0.0.0-20260716142318-04cf7de1434f h1:2mT6QcXmMFtvg7bezs1Fef7nnpJyeCmfWoWNjwtvNZ4=
 github.com/bazelbuild/buildtools v0.0.0-20260716142318-04cf7de1434f/go.mod h1:PLNUetjLa77TCCziPsz0EI8a6CUxgC+1jgmWv0H25tg=
 github.com/bmatcuk/doublestar/v4 v4.10.0 h1:zU9WiOla1YA122oLM6i4EXvGW62DvKZVxIe6TYWexEs=
