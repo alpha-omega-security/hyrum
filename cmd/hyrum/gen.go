@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/alpha-omega-security/harness"
 	"github.com/alpha-omega-security/hyrum/internal/hyrum"
@@ -205,12 +206,34 @@ func stageContext(ctx context.Context, t *hyrum.Target, d hyrum.Dep, ws string, 
 	if err != nil {
 		return depDir, fmt.Errorf("outline: %w", err)
 	}
+	meta["exported_symbols"] = countExported(res)
+	if err := writeJSON(filepath.Join(ws, "context.json"), meta); err != nil {
+		return depDir, err
+	}
 	f, err := os.Create(filepath.Join(ws, "dep-outline.md"))
 	if err != nil {
 		return depDir, err
 	}
 	defer f.Close()
 	return depDir, res.Markdown(f)
+}
+
+// countExported returns the number of exported top-level declarations across
+// all outlined files. Test files and files under obvious test directories are
+// excluded so the count reflects the shipped surface.
+func countExported(r *outline.Result) int {
+	n := 0
+	for _, f := range r.Files {
+		if strings.Contains(f.Path, "/test") || strings.HasSuffix(f.Path, "_test.go") {
+			continue
+		}
+		for _, s := range f.Symbols {
+			if s.Exported {
+				n++
+			}
+		}
+	}
+	return n
 }
 
 func lookupRepo(ctx context.Context, rc *registries.Client, d hyrum.Dep) (repoURL, latest string, err error) {

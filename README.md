@@ -20,7 +20,7 @@ httpbin/Flask hand analysis: `hyrum surface --dep Flask ./httpbin` finds all
 nine named imports and all ten `request` properties the proof of concept
 documented, plus three the manual pass missed.
 
-## Why this is worth doing now
+## Rationale
 
 Testing your dependencies used to be bad advice for a cost reason: writing and
 maintaining hundreds of tests against someone else's API was more
@@ -32,7 +32,7 @@ broken before production does; "the library has its own tests" is the Hyrum's
 Law gap this exists to close, since a library's tests cover what its
 maintainers think the contract is, not what you actually depend on.
 
-## What runs
+## Usage
 
 ```
 hyrum surface <path>            per-dep usage summary; no model calls
@@ -49,7 +49,7 @@ through instances and options bags to the actual method calls; `hyrum-history`
 reads the git log and changelog for past compatibility fixes; `hyrum-generate`
 turns both into tests that mirror the observed calls and cite their source.
 
-## Where the tests can go
+## Output
 
 The output layout is `tests/hyrum/<dependency>/from_<target>/` so that a
 maintainer of the dependency can collect the `from_*` directories contributed
@@ -65,7 +65,7 @@ set with a CVE's affected functions turns a noisy advisory into "reachable" or
 upper-bound pin is blocking gives the concrete list of failing behaviours
 holding the upgrade back.
 
-## Built on
+## Dependencies
 
 Toolchain detection, manifest parsing, registry lookup, cloning, source
 outlining, changelog parsing, and OSV lookup come from the
@@ -80,3 +80,7 @@ go build ./cmd/hyrum
 ```
 
 Go 1.26 or later.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
