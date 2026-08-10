@@ -1,0 +1,35 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["files"],
+  "additionalProperties": false,
+  "properties": {
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "content"],
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Test file path relative to the output root; no leading slash or ..",
+            "pattern": "^[^/][^\\0]*$"
+          },
+          "content": {
+            "type": "string",
+            "description": "Full file body"
+          },
+          "source": {
+            "type": "string",
+            "description": "usage.json site or breaks.json entry this file was derived from"
+          }
+        }
+      }
+    },
+    "notes": {
+      "type": "string",
+      "description": "Anything the generator could not cover and why"
+    }
+  }
+}

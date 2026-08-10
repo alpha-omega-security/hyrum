@@ -60,22 +60,55 @@ func cmdGen(args []string) error {
 			fmt.Fprintf(os.Stderr, "  %s: stage: %v\n", d.Name, err)
 			continue
 		}
-		job := harness.Job{
-			Workspace:  ws,
-			SrcDir:     "target",
-			SkillName:  "hyrum-generate",
-			OutputFile: "tests.json",
-		}
 		if !*run {
+			job := harness.Job{Workspace: ws, SrcDir: "target", SkillName: "hyrum-generate", OutputFile: "tests.json"}
 			fmt.Printf("staged %s: %s %v\n", d.Name, h.Binary(), h.Args(job))
 			continue
 		}
-		// TODO: exec + ParseStream + write tests to *out. See scrutineer
-		// internal/worker/claude.go for the pattern.
-		_ = out
-		return notYet("gen --run")
+
+		fmt.Fprintf(os.Stderr, "→ %s (%s)\n", d.Name, d.PURL)
+		res, err := hyrum.RunSkill(ctx, h, ws, "hyrum-generate", "tests.json")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "  %s: %v\n", d.Name, err)
+			continue
+		}
+
+		outDir := filepath.Join(t.Path, *out, d.Name, "from_"+targetName(t))
+		written, err := hyrum.WriteFiles(outDir, res.Output.Files)
+		if err != nil {
+			return fmt.Errorf("%s: write: %w", d.Name, err)
+		}
+		if err := writeJSON(filepath.Join(outDir, "meta.json"), map[string]any{
+			"purl":       d.PURL,
+			"ecosystem":  d.Ecosystem,
+			"baseline":   d.Version,
+			"session_id": res.SessionID,
+			"turns":      res.Turns,
+			"cost_usd":   res.CostUSD,
+			"notes":      res.Output.Notes,
+		}); err != nil {
+			return err
+		}
+		fmt.Printf("%s: %d file(s) → %s ($%.4f)\n", d.Name, len(written), outDir, res.CostUSD)
 	}
 	return nil
+}
+
+// targetName is the from_<x> directory component. Uses brief's detected git
+// remote basename when available, else the path basename.
+func targetName(t *hyrum.Target) string {
+	if t.Report.Git != nil {
+		for _, url := range t.Report.Git.Remotes {
+			base := filepath.Base(url)
+			if i := len(base) - len(".git"); i > 0 && base[i:] == ".git" {
+				base = base[:i]
+			}
+			if base != "" {
+				return base
+			}
+		}
+	}
+	return filepath.Base(t.Path)
 }
 
 // stageContext writes the per-dependency context bundle into ws:
