@@ -3,12 +3,12 @@
 `hyrum surface` reports which of a dependency's exports the target actually
 imports, with call-site locations, without any model calls.
 
-## Is this CVE reachable
+## CVE reachability
 
 An OSV or GHSA advisory names affected versions and, in most records, the
 functions or files the fix touched. Cross-referencing that against the
-target's usage surface distinguishes an advisory that touches code on your
-call path from one that touches an export you never import.
+target's usage surface distinguishes an advisory affecting code on your call
+path from one affecting an export the target does not import.
 
 ```
 hyrum surface --dep lodash --json . | jq -r '.[0].symbols[].name'
@@ -22,7 +22,7 @@ in JavaScript or Python can reach code the static extractor misses; the LLM
 `hyrum-usage` step traces through instances for a tighter bound when it
 matters.
 
-## Which dependencies could be dropped
+## Vendoring and removal candidates
 
 The summary view sorts by call-site count:
 

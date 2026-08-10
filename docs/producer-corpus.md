@@ -35,15 +35,14 @@ node --test ../corpus/ws/**/*.test.js
 ```
 
 A failing test names which dependent depends on the changed behaviour and
-where in that dependent's code. For a security fix this is the evidence that
-the patch changes no observable behaviour for the sampled dependents; for an
-intentional break it is the list of downstream call sites that will need
-adapting.
+where in that dependent's code. A clean run against a security patch is
+evidence that the patch changed no observable behaviour for the sampled
+dependents, and the failure list on an intentional break is the set of
+downstream call sites that will need adapting.
 
-The corpus is committable alongside the library. Regenerating a single
-`from_<dependent>` directory is one `hyrum gen` invocation with `--out
-./corpus`, so a stale contribution can be refreshed without rebuilding the
-whole set.
+Regenerating a single `from_<dependent>` directory is one `hyrum gen`
+invocation with `--out ./corpus`, so the corpus can be committed alongside the
+library and a stale contribution refreshed without rebuilding the whole set.
 
 ## Compared to running dependents' own suites
 

@@ -1,12 +1,11 @@
 # Explaining a pinned dependency
 
 A `requirements.txt` line reading `werkzeug<3` or a package.json range
-`"ws": "~7.4.2"` records that someone found the newer version broke
-something without recording what, and after a few months the pin is still
-there, the advisory scanner flags it, and the reason has been lost.
-
-`hyrum gen` against the pinned version establishes a baseline suite; `hyrum
-check` against the blocked version prints what fails.
+`"ws": "~7.4.2"` records that someone found the newer version broke something
+without recording what, and after a few months the pin is still there, the
+advisory scanner flags it, and the reason has been lost. Running `hyrum gen`
+at the pinned version establishes a baseline suite that `hyrum check` can then
+run against the blocked version to print the specific failures:
 
 ```
 $ hyrum gen --dep werkzeug --backend codex --run .
@@ -26,8 +25,8 @@ list for lifting the pin: replace `parse_authorization_header` with
 `WWWAuthenticate`, then remove the `<3`.
 
 The same approach applies to a long-open dependabot PR: `hyrum check --dep
-X@<proposed>` on the PR branch prints why merging would break, without needing
-to remember or re-derive it.
+X@<proposed>` on the PR branch prints the specific reasons merging would
+break.
 
 For a dependency that is pinned but has no generated tests yet, `hyrum surface
 --dep X .` gives the list of call sites to inspect by hand, which is often

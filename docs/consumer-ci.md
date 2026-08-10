@@ -39,8 +39,8 @@ jobs:
 ```
 
 `check` installs the candidate version via the project's own package manager
-and runs `tests/hyrum/ws/`. A pass means every pinned behaviour still holds; a
-fail prints the assertion diff:
+and runs `tests/hyrum/ws/`, exiting non-zero with the assertion diff when a
+pinned behaviour has changed:
 
 ```
 → npm add ws@8.21.3
@@ -66,5 +66,5 @@ baseline so the suite pins ws-8 behaviour going forward:
 hyrum gen --dep ws --backend codex --run .
 ```
 
-The `meta.json` diff shows the baseline change; the test-file diff shows which
-pinned behaviours moved.
+The `meta.json` diff records the baseline change and the test-file diff is the
+list of pinned behaviours that moved between the two versions.
