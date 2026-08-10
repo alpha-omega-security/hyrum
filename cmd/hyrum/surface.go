@@ -117,6 +117,14 @@ func findDep(t *hyrum.Target, name string) (hyrum.Dep, bool) {
 			return d, true
 		}
 	}
+	// Not in the manifest. A directly-imported transitive (httpbin importing
+	// werkzeug via Flask) is exactly the Hyrum's Law case, so allow --dep to
+	// name any package and try each detected ecosystem's indexer.
+	for _, eco := range t.Ecosystems() {
+		if _, err := usage.For(eco); err == nil {
+			return hyrum.Dep{Name: name, Ecosystem: eco, Direct: false}, true
+		}
+	}
 	return hyrum.Dep{}, false
 }
 
