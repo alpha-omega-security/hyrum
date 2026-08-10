@@ -96,7 +96,7 @@ func cmdGen(args []string) error {
 			continue
 		}
 
-		outDir := filepath.Join(t.Path, *out, d.Name, "from_"+targetName(t))
+		outDir := filepath.Join(outRoot(t.Path, *out), d.Name, "from_"+targetName(t))
 		written, err := hyrum.WriteFiles(outDir, res.Output.Files)
 		if err != nil {
 			return fmt.Errorf("%s: write: %w", d.Name, err)
@@ -114,6 +114,16 @@ func cmdGen(args []string) error {
 		fmt.Printf("%s: %d file(s) → %s ($%.4f)\n", d.Name, len(written), outDir, totalCost)
 	}
 	return nil
+}
+
+// outRoot resolves the --out flag: absolute paths are used as-is; relative
+// paths are joined onto the target so tests/hyrum lands next to the code that
+// was analysed.
+func outRoot(targetPath, out string) string {
+	if filepath.IsAbs(out) {
+		return out
+	}
+	return filepath.Join(targetPath, out)
 }
 
 // targetName is the from_<x> directory component. Uses brief's detected git

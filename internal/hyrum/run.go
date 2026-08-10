@@ -62,11 +62,23 @@ func RunSkillWithEmit(ctx context.Context, h harness.Harness, ws, name, outputFi
 		OutputFile: outputFile,
 	}
 
+	// Backends that do not report a price (codex) still report token usage;
+	// fall back to the list-price estimate for the backend's default model so
+	// meta.json carries something better than zero.
+	model := ""
+	if defs := h.DefaultModels(); len(defs) > 0 {
+		model = defs[0].ID
+	}
+
 	res := &RunResult{}
 	wrapped := func(e harness.Event) {
 		switch e.Kind {
 		case harness.KindResult:
-			res.CostUSD = e.CostUSD
+			cost := e.CostUSD
+			if cost == 0 && model != "" {
+				cost = harness.CostFromUsage(model, e.Usage)
+			}
+			res.CostUSD = cost
 			res.Turns = e.Turns
 		case harness.KindSession:
 			res.SessionID = e.SessionID

@@ -95,6 +95,28 @@ func TestJSImportDefaultAndNamespace(t *testing.T) {
 	}
 }
 
+func TestJSRequireChainedMember(t *testing.T) {
+	root := writeTree(t, map[string]string{
+		"a.js": "const DEFAULT_WS_ENGINE = require(\"ws\").Server;\n" +
+			"new DEFAULT_WS_ENGINE({ noServer: true });\n",
+		"b.js": "require('ws').createWebSocketStream(sock);\n",
+	})
+	s, err := Index("npm", root, "ws")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := symbolNames(s)
+	if got["Server"] == 0 {
+		t.Errorf("chained .Server not recorded as export: %v", got)
+	}
+	if got["createWebSocketStream"] == 0 {
+		t.Errorf("bare chained call not recorded: %v", got)
+	}
+	if got["ws"] != 0 {
+		t.Errorf("chained require should not fall back to bare dep symbol: %v", got)
+	}
+}
+
 func TestJSSubpathMatch(t *testing.T) {
 	root := writeTree(t, map[string]string{
 		"a.js": "const Sender = require('ws/lib/sender');\n",

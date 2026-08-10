@@ -111,15 +111,35 @@ func scanJSFile(path, rel, dep string, add func(name, kind, file string, line in
 		line++
 		text := sc.Text()
 
-		if m := reRequire.FindStringSubmatch(text); m != nil && matchesDep(m[1], dep) {
-			for _, b := range parseRequireBindings(text) {
-				bindings[b.name] = b.kind
-				add(b.symbol, b.kind, rel, line, strings.TrimSpace(text))
+		if m := reRequire.FindStringSubmatchIndex(text); m != nil {
+			spec := text[m[2]:m[3]]
+			if matchesDep(spec, dep) {
+				bs := parseRequireBindings(text)
+				// If the require result is immediately dereferenced
+				// (const X = require('d').Y), record Y as the consumed
+				// export rather than the local name X.
+				chained := ""
+				if len(text) > m[1] && text[m[1]] == '.' {
+					chained = leadingIdent(text[m[1]+1:])
+				}
+				switch {
+				case chained != "" && len(bs) > 0:
+					for _, b := range bs {
+						bindings[b.name] = "named"
+						add(chained, "named", rel, line, strings.TrimSpace(text))
+					}
+				case chained != "":
+					add(chained, "named", rel, line, strings.TrimSpace(text))
+				case len(bs) > 0:
+					for _, b := range bs {
+						bindings[b.name] = b.kind
+						add(b.symbol, b.kind, rel, line, strings.TrimSpace(text))
+					}
+				default:
+					add(dep, "cjs", rel, line, strings.TrimSpace(text))
+				}
+				continue
 			}
-			if len(parseRequireBindings(text)) == 0 {
-				add(dep, "cjs", rel, line, strings.TrimSpace(text))
-			}
-			continue
 		}
 		if m := reImportFrom.FindStringSubmatch(text); m != nil && matchesDep(m[2], dep) {
 			for _, b := range parseImportBindings(m[1]) {
