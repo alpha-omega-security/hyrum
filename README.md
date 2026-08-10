@@ -18,7 +18,13 @@ cost across the three model-driven steps was $1.27.
 The static extraction step alone, with no model calls, reproduces the original
 httpbin/Flask hand analysis: `hyrum surface --dep Flask ./httpbin` finds all
 nine named imports and all ten `request` properties the proof of concept
-documented, plus three the manual pass missed.
+documented, plus three the manual pass missed. The full pipeline on the same
+target produces 73 tests for $2.47, none of which use `hasattr`- or
+`is None`-only assertions (23% of the proof of concept's 299 do), and one of
+which pins the exact `Set-Cookie` header from `response.delete_cookie()`. That
+test fails on Werkzeug 2.3+ because the expiry-date format changed from
+`01-Jan-1970` to `01 Jan 1970`; the proof of concept's `delete_cookie` test
+asserts only a substring and passes on both.
 
 ## Rationale
 
