@@ -15,6 +15,7 @@ import (
 	"github.com/git-pkgs/outline"
 	"github.com/git-pkgs/registries"
 	_ "github.com/git-pkgs/registries/all" // register every ecosystem's init()
+	"github.com/git-pkgs/vers"
 )
 
 // cmdGen runs the generation pipeline for one or more dependencies: stage the
@@ -30,6 +31,7 @@ func cmdGen(ctx context.Context, args []string) error {
 	backend := fs.String("backend", "claude", "harness backend: "+harness.Names())
 	run := fs.Bool("run", false, "actually invoke the backend (otherwise stage only)")
 	container := fs.String("container", "", "run the backend in a container using this image (\"default\" for "+hyrum.DefaultRunnerImage+")")
+	verify := fs.Bool("verify", false, "after generating, run the tests against the baseline and latest dep versions and record results in meta.json")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -54,6 +56,7 @@ func cmdGen(ctx context.Context, args []string) error {
 	}
 
 	p := newPipeline(h, *work, outRoot(t.Path, *out), *run, resolveContainer(*container))
+	p.verify = *verify
 	return p.genAll(ctx, t, selected)
 }
 
@@ -71,6 +74,9 @@ type pipeline struct {
 	// genOne call sets its TargetPath to the analysed target so /work/target
 	// is a read-only bind mount instead of a host symlink.
 	containerImage string
+	// verify runs the generated tests against baseline and latest after
+	// writing them and records results in meta.json.
+	verify bool
 }
 
 // newPipeline builds a pipeline from the flags gen and corpus share.
@@ -153,7 +159,7 @@ func (p *pipeline) genOne(ctx context.Context, t *hyrum.Target, idx *hyrum.Histo
 	if err != nil {
 		return fmt.Errorf("write: %w", err)
 	}
-	if err := writeJSON(filepath.Join(outDir, "meta.json"), map[string]any{
+	meta := map[string]any{
 		"purl":       d.PURL,
 		"ecosystem":  d.Ecosystem,
 		"baseline":   d.Version,
@@ -161,11 +167,64 @@ func (p *pipeline) genOne(ctx context.Context, t *hyrum.Target, idx *hyrum.Histo
 		"session_id": res.SessionID,
 		"cost_usd":   totalCost,
 		"notes":      res.Output.Notes,
-	}); err != nil {
+	}
+	if p.verify {
+		meta["verify"] = p.runVerify(ctx, ws, d, latest, res.Output.Files)
+	}
+	if err := writeJSON(filepath.Join(outDir, "meta.json"), meta); err != nil {
 		return err
 	}
 	fmt.Printf("%s ← %s: %d file(s) → %s ($%.4f)\n", d.Name, targetName(t), len(written), outDir, totalCost)
 	return nil
+}
+
+// runVerify installs the dep at baseline and latest in a scratch dir under
+// the workspace and runs the generated tests against each. The scratch dir is
+// separate from the target so the user's checkout and lockfile are untouched.
+func (p *pipeline) runVerify(ctx context.Context, ws string, d hyrum.Dep, latest string, files []hyrum.GeneratedFile) []hyrum.VerifyResult {
+	tc, ok := testRunners[d.Ecosystem]
+	if !ok {
+		return []hyrum.VerifyResult{{Error: "no test runner for ecosystem " + d.Ecosystem}}
+	}
+	scratch := filepath.Join(ws, "verify")
+	_ = os.RemoveAll(scratch)
+	if err := os.MkdirAll(scratch, 0o755); err != nil {
+		return []hyrum.VerifyResult{{Error: err.Error()}}
+	}
+	mgr, err := detectManagerFor(scratch, d.Ecosystem)
+	if err != nil {
+		return []hyrum.VerifyResult{{Error: fmt.Sprintf("manager for %s: %v", d.Ecosystem, err)}}
+	}
+	versions := []string{constraintVersion(d.Version, d.Ecosystem), latest}
+	fmt.Fprintf(os.Stderr, "  [verify] %s at %v\n", d.Name, versions)
+	results := hyrum.VerifyMatrix(ctx, mgr, hyrum.TestCommand(tc), scratch, d.Name, files, versions)
+	for _, r := range results {
+		if r.Error != "" {
+			fmt.Fprintf(os.Stderr, "    %s: error: %s\n", r.Version, r.Error)
+		} else {
+			fmt.Fprintf(os.Stderr, "    %s: %d pass, %d fail %v\n", r.Version, r.Pass, r.Fail, r.Failed)
+		}
+	}
+	return results
+}
+
+// constraintVersion returns an installable version from a manifest constraint
+// under the given ecosystem's native syntax (^/~ for npm, ~> for gem, ~= for
+// pypi, ...). The returned version is the range's inclusive lower bound;
+// upper-bound-only or wildcard constraints return "".
+func constraintVersion(v, ecosystem string) string {
+	if v == "" {
+		return ""
+	}
+	r, err := (&vers.Parser{}).ParseNative(v, ecosystem)
+	if err != nil || len(r.Intervals) == 0 {
+		return ""
+	}
+	iv := r.Intervals[0]
+	if iv.Min == "" || !iv.MinInclusive {
+		return ""
+	}
+	return iv.Min
 }
 
 // resolveContainer maps the --container flag value to an image name. Empty

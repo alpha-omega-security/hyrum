@@ -146,6 +146,30 @@ func detectManager(dir, hint string) (managers.Manager, error) { //nolint:iretur
 	return det.Detect(dir, managers.DetectOptions{Manager: hint})
 }
 
+// ecosystemManager maps a purl ecosystem type to the managers definition name
+// used for a fresh scratch directory. Where several managers serve one
+// ecosystem the entry is the one whose Init produces a manifest that Add can
+// then target without further setup.
+var ecosystemManager = map[string]string{
+	"npm":      "npm",
+	"pypi":     "pip",
+	"golang":   "go",
+	"gem":      "bundler",
+	"cargo":    "cargo",
+	"composer": "composer",
+	"hex":      "mix",
+}
+
+// detectManagerFor constructs a manager for ecosystem in dir. dir may be
+// empty; the caller is expected to call mgr.Init before Add.
+func detectManagerFor(dir, ecosystem string) (managers.Manager, error) { //nolint:ireturn
+	name, ok := ecosystemManager[ecosystem]
+	if !ok {
+		return nil, fmt.Errorf("no default package manager mapped for ecosystem %q", ecosystem)
+	}
+	return detectManager(dir, name)
+}
+
 func splitDepSpec(s string) (name, version string) {
 	// Handle scoped npm packages: @scope/name@version has two @s.
 	at := strings.LastIndex(s, "@")

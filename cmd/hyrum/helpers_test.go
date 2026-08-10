@@ -114,6 +114,25 @@ func TestTruncate(t *testing.T) {
 	}
 }
 
+func TestConstraintVersion(t *testing.T) {
+	cases := []struct{ in, eco, want string }{
+		{"^1.2.3", "npm", "1.2.3"},
+		{"~7.4.2", "npm", "7.4.2"},
+		{"8.17.1", "npm", "8.17.1"},
+		{"*", "npm", ""},
+		{"<3", "npm", ""},
+		{"", "npm", ""},
+		{"~> 4.0", "gem", "4.0"},
+		{"~=2.3", "pypi", "2.3"},
+		{"v10.28.0", "golang", "v10.28.0"},
+	}
+	for _, c := range cases {
+		if got := constraintVersion(c.in, c.eco); got != c.want {
+			t.Errorf("(%q, %s): got %q want %q", c.in, c.eco, got, c.want)
+		}
+	}
+}
+
 func TestCountExported(t *testing.T) {
 	r := &outline.Result{Files: []outline.File{
 		{Path: "lib/a.js", Symbols: []outline.Symbol{

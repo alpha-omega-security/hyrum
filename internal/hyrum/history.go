@@ -12,6 +12,7 @@ import (
 
 	"github.com/git-pkgs/changelog"
 	"github.com/git-pkgs/purl"
+	"github.com/git-pkgs/vers"
 	"github.com/git-pkgs/vulns"
 	"github.com/git-pkgs/vulns/osv"
 )
@@ -323,17 +324,11 @@ func writeChangelog(depDir, out, from, to string) {
 	writeJSONFile(out, entries)
 }
 
-// isExactVersion reports whether v looks like a resolved version rather than
-// a range constraint (^, ~, >=, *) or an empty string.
+// isExactVersion reports whether v is a single resolved version rather than a
+// range or wildcard, so it can be matched against a changelog header.
 func isExactVersion(v string) bool {
-	if v == "" {
-		return false
-	}
-	c := v[0]
-	if c >= '0' && c <= '9' {
-		return true
-	}
-	return (c == 'v' || c == 'V') && len(v) > 1 && v[1] >= '0' && v[1] <= '9'
+	c, err := vers.ParseConstraint(v)
+	return err == nil && (c.Operator == "" || c.Operator == "=") && c.Version != "*"
 }
 
 func writeVulns(ctx context.Context, purlStr, out string) {

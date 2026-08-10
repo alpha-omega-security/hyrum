@@ -13,6 +13,7 @@ require (
 	github.com/git-pkgs/outline v0.1.9-0.20260810165341-067044f36246
 	github.com/git-pkgs/purl v0.1.15
 	github.com/git-pkgs/registries v0.6.4
+	github.com/git-pkgs/vers v0.3.0
 	github.com/git-pkgs/vulns v0.2.1
 )
 
@@ -29,7 +30,6 @@ require (
 	github.com/git-pkgs/packageurl-go v0.3.1 // indirect
 	github.com/git-pkgs/pom v0.1.5 // indirect
 	github.com/git-pkgs/spdx v0.3.0 // indirect
-	github.com/git-pkgs/vers v0.3.0 // indirect
 	github.com/github/go-spdx/v2 v2.7.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/oapi-codegen/nullable v1.2.0 // indirect
