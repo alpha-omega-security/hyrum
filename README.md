@@ -50,7 +50,11 @@ go install github.com/alpha-omega-security/hyrum/cmd/hyrum@latest
 Go 1.26 or later. `git` must be on PATH. For `gen --run` and `corpus --run`
 you also need one of the [harness](https://github.com/alpha-omega-security/harness)
 backends installed and authenticated (`claude`, `codex`, `copilot`, or
-`opencode`); pass it with `--backend`.
+`opencode`); pass it with `--backend`. With `--container` the backend runs
+inside `ghcr.io/alpha-omega-security/scrutineer-runner` with a fresh HOME, so
+authentication must be an environment variable (`ANTHROPIC_API_KEY`,
+`CLAUDE_CODE_OAUTH_TOKEN`, `CODEX_API_KEY`) rather than a file under your
+home directory; docker or podman must be on PATH.
 
 ## Usage
 
