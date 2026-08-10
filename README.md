@@ -85,6 +85,7 @@ candidates, and intersecting the used-symbol set with a CVE's
 affected-function list turns a noisy advisory into a reachable/unreachable
 call. For a dependency held back by an upper-bound pin, `hyrum check --dep
 X@<blocked>` prints the specific failing behaviours instead of just a red CI.
+See [docs/](docs/) for worked examples of each of these.
 
 ## Ecosystems
 
