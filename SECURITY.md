@@ -37,8 +37,21 @@ skill to read; a package with adversarial metadata could place instruction-like
 text there. The statement in each `SKILL.md` that workspace content is data
 rather than instructions is advisory and depends on the backend honouring it.
 
-Running the backend inside a container with a fresh HOME and a read-only
-target mount, as
-[scrutineer](https://github.com/alpha-omega-security/scrutineer) does, closes
-these gaps by construction. On the host, restrict `--run` to repositories and
-dependencies you have reason to trust.
+### `--container`
+
+Passing `--container default` (or an image name) to `gen` or `corpus` runs the
+backend inside an ephemeral container with `--cap-drop ALL`,
+`--security-opt no-new-privileges`, a non-root user, `HOME=/tmp` on a tmpfs,
+the workspace bind-mounted at `/work`, and the target repository bind-mounted
+read-only at `/work/target`. That removes access to the user's global agent
+configuration and prevents any write to the target checkout, closing the gaps
+above except the registry-metadata one (which is bounded to text inside a JSON
+value the backend reads). The default image is
+`ghcr.io/alpha-omega-security/scrutineer-runner`, which bundles the harness
+backends and the git-pkgs tools. Network egress is not restricted in this
+mode; [scrutineer](https://github.com/alpha-omega-security/scrutineer)'s
+runner adds an allowlist proxy for that, and extracting its container runner
+into harness for shared use is tracked upstream.
+
+Without `--container`, restrict `--run` to repositories and dependencies you
+have reason to trust.

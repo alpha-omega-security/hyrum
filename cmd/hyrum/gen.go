@@ -29,6 +29,7 @@ func cmdGen(ctx context.Context, args []string) error {
 	work := fs.String("work", filepath.Join(os.TempDir(), "hyrum"), "working directory for clones and skill workspaces")
 	backend := fs.String("backend", "claude", "harness backend: "+harness.Names())
 	run := fs.Bool("run", false, "actually invoke the backend (otherwise stage only)")
+	container := fs.String("container", "", "run the backend in a container using this image (\"default\" for "+hyrum.DefaultRunnerImage+")")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -52,13 +53,7 @@ func cmdGen(ctx context.Context, args []string) error {
 		return err
 	}
 
-	p := &pipeline{
-		h:       h,
-		rc:      registries.DefaultClient(),
-		work:    *work,
-		outRoot: outRoot(t.Path, *out),
-		run:     *run,
-	}
+	p := newPipeline(h, *work, outRoot(t.Path, *out), *run, resolveContainer(*container))
 	return p.genAll(ctx, t, selected)
 }
 
@@ -68,9 +63,31 @@ func cmdGen(ctx context.Context, args []string) error {
 type pipeline struct {
 	h       harness.Harness
 	rc      *registries.Client
+	runner  hyrum.Runner
 	work    string
 	outRoot string
 	run     bool
+	// containerImage non-empty means the runner is a ContainerRunner and each
+	// genOne call sets its TargetPath to the analysed target so /work/target
+	// is a read-only bind mount instead of a host symlink.
+	containerImage string
+}
+
+// newPipeline builds a pipeline from the flags gen and corpus share.
+func newPipeline(h harness.Harness, work, outRoot string, run bool, containerImage string) *pipeline {
+	p := &pipeline{
+		h:              h,
+		rc:             registries.DefaultClient(),
+		work:           work,
+		outRoot:        outRoot,
+		run:            run,
+		containerImage: containerImage,
+	}
+	if containerImage == "" {
+		p.runner = hyrum.HostRunner{}
+	}
+	// ContainerRunner is constructed per genOne with the target path.
+	return p
 }
 
 // genAll builds the target's history index once and runs genOne for each dep.
@@ -103,6 +120,10 @@ func (p *pipeline) genOne(ctx context.Context, t *hyrum.Target, idx *hyrum.Histo
 	}
 
 	fmt.Fprintf(os.Stderr, "→ %s ← %s (%s)\n", d.Name, targetName(t), d.PURL)
+	runner := p.runner
+	if runner == nil {
+		runner = hyrum.ContainerRunner{Image: p.containerImage, TargetPath: t.Path}
+	}
 	steps := []struct{ skill, out string }{
 		{"hyrum-usage", "surface.json"},
 		{"hyrum-history", "breaks.json"},
@@ -112,7 +133,7 @@ func (p *pipeline) genOne(ctx context.Context, t *hyrum.Target, idx *hyrum.Histo
 	var totalCost float64
 	for _, s := range steps {
 		fmt.Fprintf(os.Stderr, "  [%s]\n", s.skill)
-		r, err := hyrum.RunSkill(ctx, p.h, ws, s.skill, s.out)
+		r, err := runner.RunSkill(ctx, p.h, ws, s.skill, s.out)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "  %s/%s: %v\n", d.Name, s.skill, err)
 			if s.skill == "hyrum-generate" {
@@ -145,6 +166,15 @@ func (p *pipeline) genOne(ctx context.Context, t *hyrum.Target, idx *hyrum.Histo
 	}
 	fmt.Printf("%s ← %s: %d file(s) → %s ($%.4f)\n", d.Name, targetName(t), len(written), outDir, totalCost)
 	return nil
+}
+
+// resolveContainer maps the --container flag value to an image name. Empty
+// means host mode; "default" selects the published runner image.
+func resolveContainer(v string) string {
+	if v == "default" {
+		return hyrum.DefaultRunnerImage
+	}
+	return v
 }
 
 // outRoot resolves the --out flag: absolute paths are used as-is; relative

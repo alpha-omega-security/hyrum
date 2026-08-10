@@ -29,6 +29,7 @@ func cmdCorpus(ctx context.Context, args []string) error {
 	work := fs.String("work", filepath.Join(os.TempDir(), "hyrum-corpus"), "working directory for clones and skill workspaces")
 	backend := fs.String("backend", "claude", "harness backend: "+harness.Names())
 	run := fs.Bool("run", false, "invoke the backend (otherwise stage only)")
+	container := fs.String("container", "", "run the backend in a container using this image (\"default\" for the published runner)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -43,14 +44,8 @@ func cmdCorpus(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	rc := registries.DefaultClient()
-	p := &pipeline{
-		h:       h,
-		rc:      rc,
-		work:    *work,
-		outRoot: *out,
-		run:     *run,
-	}
+	p := newPipeline(h, *work, *out, *run, resolveContainer(*container))
+	rc := p.rc
 
 	specs := []string(explicitDeps)
 	if *discoverN > 0 {
