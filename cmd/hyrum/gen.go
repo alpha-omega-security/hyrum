@@ -158,21 +158,31 @@ func outRoot(targetPath, out string) string {
 	return filepath.Join(targetPath, out)
 }
 
-// targetName is the from_<x> directory component. Uses brief's detected git
-// remote basename when available, else the path basename.
+// targetName is the from_<x> directory component. Prefers the basename of the
+// origin remote, then any https remote, then the path basename. brief's
+// Remotes is a map so plain iteration would pick a deploy remote (dokku,
+// heroku) at random.
 func targetName(t *hyrum.Target) string {
 	if t.Report.Git != nil {
-		for _, url := range t.Report.Git.Remotes {
-			base := filepath.Base(url)
-			if i := len(base) - len(".git"); i > 0 && base[i:] == ".git" {
-				base = base[:i]
-			}
-			if base != "" {
-				return base
+		remotes := t.Report.Git.Remotes
+		if u := remotes["origin"]; u != "" {
+			return remoteBasename(u)
+		}
+		for _, u := range remotes {
+			if strings.HasPrefix(u, "https://") {
+				return remoteBasename(u)
 			}
 		}
 	}
 	return filepath.Base(t.Path)
+}
+
+func remoteBasename(url string) string {
+	base := filepath.Base(url)
+	if i := len(base) - len(".git"); i > 0 && base[i:] == ".git" {
+		base = base[:i]
+	}
+	return base
 }
 
 // stageContext writes the per-dependency context bundle into ws:
@@ -231,8 +241,12 @@ func stageContext(ctx context.Context, t *hyrum.Target, d hyrum.Dep, ws string, 
 	// Full clone: hyrum-history diffs between version tags and reads
 	// History.md at old refs, which a shallow clone cannot serve. The dep
 	// clone is reused across runs via Ensure so the cost is one-time.
+	// The dep clone and everything derived from it is best-effort: a bad
+	// repository URL from the registry (or none) means the skills run with
+	// usage.json and git-log.txt only.
 	if err := clone.Ensure(ctx, clone.Retry{}, repoURL, depDir, "", true); err != nil {
-		return "", fmt.Errorf("clone %s: %w", repoURL, err)
+		fmt.Fprintf(os.Stderr, "  clone %s: %v (continuing without dep source)\n", repoURL, err)
+		return "", nil
 	}
 	// The dep clone is ours to modify; remove any CLAUDE.md/AGENTS.md/.claude
 	// so the cloned repository cannot inject instructions into the skill run.
