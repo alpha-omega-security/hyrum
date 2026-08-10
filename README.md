@@ -1,13 +1,77 @@
 # hyrum
 
-Generate and run Hyrum's tests: hermetic tests that capture how a repository
-actually calls each of its dependencies, so that a version bump which changes
-observed behaviour fails CI before it reaches production.
+hyrum turns the [hyrums-tests](https://github.com/michaelwinser/hyrums-tests)
+proof of concept into a pipeline you can point at any repository. It reads how
+a target calls each of its dependencies, mines the target's own history for
+past compatibility fixes, and writes hermetic tests that pin those observed
+behaviours. The tests pass on the dependency version the target was built
+against and fail when a later version changes something the target depends on.
 
-Built on [harness](https://github.com/alpha-omega-security/harness) for the
-LLM-driven steps and the [git-pkgs](https://github.com/git-pkgs) libraries for
-toolchain detection, manifest parsing, registry lookup, cloning, and source
-outlining.
+Running the full pipeline on engine.io against `ws` produces seven tests using
+`node:test` and an in-memory Duplex stream (no ports, no timing). All seven
+pass on ws 7.4.2, engine.io's baseline. Six pass on ws 8.21.3; the seventh,
+`delivers text message payloads as strings`, fails because ws 8 changed the
+message-event payload from `string` to `Buffer`. The test's source comment
+cites engine.io commit `64d5754`, where a human made exactly that fix. Total
+cost across the three model-driven steps was $1.27.
+
+The static extraction step alone, with no model calls, reproduces the original
+httpbin/Flask hand analysis: `hyrum surface --dep Flask ./httpbin` finds all
+nine named imports and all ten `request` properties the proof of concept
+documented, plus three the manual pass missed.
+
+## Why this is worth doing now
+
+Testing your dependencies used to be bad advice for a cost reason: writing and
+maintaining hundreds of tests against someone else's API was more
+engineer-hours than the breakage it prevented. LLM generation and regeneration
+turn that into a token spend, and coupling to a dependency's behaviour is fine
+when uncoupling is cheap. The other objections were never really about cost.
+"You can't fix the library" misreads the goal, which is finding out you're
+broken before production does; "the library has its own tests" is the Hyrum's
+Law gap this exists to close, since a library's tests cover what its
+maintainers think the contract is, not what you actually depend on.
+
+## What runs
+
+```
+hyrum surface <path>            per-dep usage summary; no model calls
+hyrum surface --dep X <path>    symbol-level detail for one dep
+hyrum gen --dep X --run <path>  generate tests for X into tests/hyrum/
+```
+
+`gen` stages a workspace with the target's usage of the dependency
+(`usage.json`), a signature-only outline of the dependency's source
+(`dep-outline.md`), the target's git commits mentioning the dependency, its
+OSV advisories, and its parsed changelog when one exists. Three skills run in
+sequence over that workspace: `hyrum-usage` traces from import entry points
+through instances and options bags to the actual method calls; `hyrum-history`
+reads the git log and changelog for past compatibility fixes; `hyrum-generate`
+turns both into tests that mirror the observed calls and cite their source.
+
+## Where the tests can go
+
+The output layout is `tests/hyrum/<dependency>/from_<target>/` so that a
+maintainer of the dependency can collect the `from_*` directories contributed
+by many targets and run them as one suite before a release. That gives an
+open-source project something like Rust's crater run without needing to build
+every downstream: hermetic per-consumer contract tests that finish in seconds.
+The same suite in a consumer's CI catches breakage on the next dependabot PR.
+
+The `surface` output is useful without the generation step. The used-symbol
+count per dependency ranks vendoring candidates. Intersecting the used-symbol
+set with a CVE's affected functions turns a noisy advisory into "reachable" or
+"not reachable from your code". Running `gen` against a version that an
+upper-bound pin is blocking gives the concrete list of failing behaviours
+holding the upgrade back.
+
+## Built on
+
+Toolchain detection, manifest parsing, registry lookup, cloning, source
+outlining, changelog parsing, and OSV lookup come from the
+[git-pkgs](https://github.com/git-pkgs) libraries. LLM invocation goes through
+[harness](https://github.com/alpha-omega-security/harness), so the backend is
+`claude`, `codex`, `copilot`, or `opencode` behind a `--backend` flag.
 
 ## Build
 
@@ -15,14 +79,4 @@ outlining.
 go build ./cmd/hyrum
 ```
 
-Requires Go 1.26 and, until the replace directives in `go.mod` are dropped,
-sibling checkouts of `alpha-omega-security/harness` and the referenced
-`git-pkgs/*` repos under `~/code`.
-
-## Usage
-
-```
-hyrum surface <path>              # per-dep usage summary (no LLM)
-hyrum surface <path> --dep ws     # symbol-level detail for one dep
-hyrum gen <path> --dep ws         # stage generation context; --run to invoke backend
-```
+Go 1.26 or later.
