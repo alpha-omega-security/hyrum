@@ -29,7 +29,7 @@ func main() {
 	case "check":
 		err = cmdCheck(os.Args[2:])
 	case "corpus":
-		err = notYet("corpus")
+		err = cmdCorpus(os.Args[2:])
 	case "help", "-h", "--help":
 		printUsage()
 		return
@@ -54,10 +54,6 @@ Usage:
   hyrum corpus  <purl> [--dependents N]
 
 `)
-}
-
-func notYet(name string) error {
-	return fmt.Errorf("%s: not implemented yet", name)
 }
 
 // stringList is a repeatable string flag.

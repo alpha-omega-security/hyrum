@@ -53,72 +53,98 @@ func cmdGen(args []string) error {
 	}
 
 	ctx := context.Background()
-	rc := registries.DefaultClient()
+	p := &pipeline{
+		h:       h,
+		rc:      registries.DefaultClient(),
+		work:    *work,
+		outRoot: outRoot(t.Path, *out),
+		run:     *run,
+	}
+	return p.genAll(ctx, t, selected)
+}
 
-	idx, err := hyrum.BuildHistoryIndex(ctx, t, selected)
+// pipeline holds the shared configuration for running the stage → history →
+// skills → write sequence over one or more dependencies of one target.
+// cmdGen and cmdCorpus both drive it.
+type pipeline struct {
+	h       harness.Harness
+	rc      *registries.Client
+	work    string
+	outRoot string
+	run     bool
+}
+
+// genAll builds the target's history index once and runs genOne for each dep.
+func (p *pipeline) genAll(ctx context.Context, t *hyrum.Target, deps []hyrum.Dep) error {
+	idx, err := hyrum.BuildHistoryIndex(ctx, t, deps)
 	if err != nil {
 		return fmt.Errorf("history index: %w", err)
 	}
-
-	for _, d := range selected {
-		ws := filepath.Join(*work, d.Ecosystem, d.Name)
-		depDir, err := stageContext(ctx, t, d, ws, rc)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "  %s: stage: %v\n", d.Name, err)
-			continue
+	for _, d := range deps {
+		if err := p.genOne(ctx, t, idx, d); err != nil {
+			fmt.Fprintf(os.Stderr, "  %s: %v\n", d.Name, err)
 		}
-		if err := hyrum.GatherHistory(ctx, idx, d, depDir, ws); err != nil {
-			fmt.Fprintf(os.Stderr, "  %s: history: %v\n", d.Name, err)
-		}
-		if !*run {
-			job := harness.Job{Workspace: ws, SrcDir: "target", SkillName: "hyrum-generate", OutputFile: "tests.json"}
-			fmt.Printf("staged %s: %s %v\n", d.Name, h.Binary(), h.Args(job))
-			continue
-		}
-
-		fmt.Fprintf(os.Stderr, "→ %s (%s)\n", d.Name, d.PURL)
-		steps := []struct{ skill, out string }{
-			{"hyrum-usage", "surface.json"},
-			{"hyrum-history", "breaks.json"},
-			{"hyrum-generate", "tests.json"},
-		}
-		var res *hyrum.RunResult
-		var totalCost float64
-		for _, s := range steps {
-			fmt.Fprintf(os.Stderr, "  [%s]\n", s.skill)
-			r, err := hyrum.RunSkill(ctx, h, ws, s.skill, s.out)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "  %s/%s: %v\n", d.Name, s.skill, err)
-				// usage and history are enrichment; generate is required.
-				if s.skill == "hyrum-generate" {
-					res = nil
-				}
-				continue
-			}
-			totalCost += r.CostUSD
-			res = r
-		}
-		if res == nil {
-			continue
-		}
-
-		outDir := filepath.Join(outRoot(t.Path, *out), d.Name, "from_"+targetName(t))
-		written, err := hyrum.WriteFiles(outDir, res.Output.Files)
-		if err != nil {
-			return fmt.Errorf("%s: write: %w", d.Name, err)
-		}
-		if err := writeJSON(filepath.Join(outDir, "meta.json"), map[string]any{
-			"purl":       d.PURL,
-			"ecosystem":  d.Ecosystem,
-			"baseline":   d.Version,
-			"session_id": res.SessionID,
-			"cost_usd":   totalCost,
-			"notes":      res.Output.Notes,
-		}); err != nil {
-			return err
-		}
-		fmt.Printf("%s: %d file(s) → %s ($%.4f)\n", d.Name, len(written), outDir, totalCost)
 	}
+	return nil
+}
+
+func (p *pipeline) genOne(ctx context.Context, t *hyrum.Target, idx *hyrum.HistoryIndex, d hyrum.Dep) error {
+	ws := filepath.Join(p.work, targetName(t), d.Ecosystem, d.Name)
+	depDir, err := stageContext(ctx, t, d, ws, p.rc)
+	if err != nil {
+		return fmt.Errorf("stage: %w", err)
+	}
+	if err := hyrum.GatherHistory(ctx, idx, d, depDir, ws); err != nil {
+		fmt.Fprintf(os.Stderr, "  %s: history: %v\n", d.Name, err)
+	}
+	if !p.run {
+		job := harness.Job{Workspace: ws, SrcDir: "target", SkillName: "hyrum-generate", OutputFile: "tests.json"}
+		fmt.Printf("staged %s: %s %v\n", d.Name, p.h.Binary(), p.h.Args(job))
+		return nil
+	}
+
+	fmt.Fprintf(os.Stderr, "→ %s ← %s (%s)\n", d.Name, targetName(t), d.PURL)
+	steps := []struct{ skill, out string }{
+		{"hyrum-usage", "surface.json"},
+		{"hyrum-history", "breaks.json"},
+		{"hyrum-generate", "tests.json"},
+	}
+	var res *hyrum.RunResult
+	var totalCost float64
+	for _, s := range steps {
+		fmt.Fprintf(os.Stderr, "  [%s]\n", s.skill)
+		r, err := hyrum.RunSkill(ctx, p.h, ws, s.skill, s.out)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "  %s/%s: %v\n", d.Name, s.skill, err)
+			if s.skill == "hyrum-generate" {
+				return err
+			}
+			continue
+		}
+		totalCost += r.CostUSD
+		res = r
+	}
+	if res == nil {
+		return fmt.Errorf("generate produced no output")
+	}
+
+	outDir := filepath.Join(p.outRoot, d.Name, "from_"+targetName(t))
+	written, err := hyrum.WriteFiles(outDir, res.Output.Files)
+	if err != nil {
+		return fmt.Errorf("write: %w", err)
+	}
+	if err := writeJSON(filepath.Join(outDir, "meta.json"), map[string]any{
+		"purl":       d.PURL,
+		"ecosystem":  d.Ecosystem,
+		"baseline":   d.Version,
+		"target":     targetName(t),
+		"session_id": res.SessionID,
+		"cost_usd":   totalCost,
+		"notes":      res.Output.Notes,
+	}); err != nil {
+		return err
+	}
+	fmt.Printf("%s ← %s: %d file(s) → %s ($%.4f)\n", d.Name, targetName(t), len(written), outDir, totalCost)
 	return nil
 }
 
