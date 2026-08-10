@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -14,7 +15,7 @@ import (
 // cmdSurface prints the usage surface of the target's dependencies. With no
 // --dep it prints a summary row per direct dependency; with --dep it prints
 // the full symbol/site list for that dependency.
-func cmdSurface(args []string) error {
+func cmdSurface(_ context.Context, args []string) error {
 	fs := newFlags("surface")
 	var deps stringList
 	fs.Var(&deps, "dep", "dependency name to detail (repeatable); default: summarise all direct deps")

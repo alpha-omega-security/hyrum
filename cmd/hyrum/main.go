@@ -10,9 +10,12 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 )
 
 func main() {
@@ -20,16 +23,22 @@ func main() {
 		printUsage()
 		os.Exit(2)
 	}
+	// Cancel the context on SIGINT/SIGTERM so harness.Run's cmd.Cancel
+	// terminates the backend's process group; without this a kill of hyrum
+	// leaves the codex/claude subprocess running.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	var err error
 	switch os.Args[1] {
 	case "surface":
-		err = cmdSurface(os.Args[2:])
+		err = cmdSurface(ctx, os.Args[2:])
 	case "gen":
-		err = cmdGen(os.Args[2:])
+		err = cmdGen(ctx, os.Args[2:])
 	case "check":
-		err = cmdCheck(os.Args[2:])
+		err = cmdCheck(ctx, os.Args[2:])
 	case "corpus":
-		err = cmdCorpus(os.Args[2:])
+		err = cmdCorpus(ctx, os.Args[2:])
 	case "help", "-h", "--help":
 		printUsage()
 		return

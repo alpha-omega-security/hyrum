@@ -16,7 +16,7 @@ import (
 // cmdCheck installs one or more dependencies at given versions and runs the
 // Hyrum's tests under tests/hyrum/<dep>/ against each. Exit is non-zero when
 // any version fails tests that another version passed.
-func cmdCheck(args []string) error {
+func cmdCheck(ctx context.Context, args []string) error {
 	fs := newFlags("check")
 	var deps stringList
 	fs.Var(&deps, "dep", "dependency as name or name@version (repeatable)")
@@ -57,7 +57,6 @@ func cmdCheck(args []string) error {
 		return fmt.Errorf("detect package manager: %w", err)
 	}
 
-	ctx := context.Background()
 	testsRoot := outRoot(t.Path, *root)
 	failed := false
 

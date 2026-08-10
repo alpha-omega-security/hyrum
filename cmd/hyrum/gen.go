@@ -21,7 +21,7 @@ import (
 // context bundle, gather history inputs, then run the usage/history/generate
 // skills in sequence. Without --run it stops after staging so the workspace
 // can be inspected without invoking a backend.
-func cmdGen(args []string) error {
+func cmdGen(ctx context.Context, args []string) error {
 	fs := newFlags("gen")
 	var deps stringList
 	fs.Var(&deps, "dep", "dependency name to generate for (repeatable); default: all direct runtime deps")
@@ -52,7 +52,6 @@ func cmdGen(args []string) error {
 		return err
 	}
 
-	ctx := context.Background()
 	p := &pipeline{
 		h:       h,
 		rc:      registries.DefaultClient(),

@@ -5,10 +5,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"github.com/alpha-omega-security/harness"
 	"github.com/alpha-omega-security/hyrum/internal/hyrum"
 	"github.com/git-pkgs/clone"
+	"github.com/git-pkgs/dependents"
+	"github.com/git-pkgs/enrichment"
 	"github.com/git-pkgs/registries"
 )
 
@@ -16,11 +19,13 @@ import (
 // perspective of several dependent repositories, aggregating the output into
 // a single tests/hyrum/<upstream>/from_<dependent>/ tree that the upstream's
 // maintainers can run as one suite.
-func cmdCorpus(args []string) error {
+func cmdCorpus(ctx context.Context, args []string) error {
 	fs := newFlags("corpus")
 	upstream := fs.String("upstream", "", "upstream dependency name as it appears in dependents' manifests (required)")
-	var dependents stringList
-	fs.Var(&dependents, "dependent", "dependent repository URL (repeatable)")
+	upstreamRepo := fs.String("upstream-repo", "", "upstream repository URL for --discover (default: registry lookup on --upstream purl)")
+	var explicitDeps stringList
+	fs.Var(&explicitDeps, "dependent", "dependent repository URL (repeatable)")
+	discoverN := fs.Int("discover", 0, "auto-discover N dependents via ecosyste.ms (git-pkgs/dependents)")
 	out := fs.String("out", "", "output directory for the aggregated corpus (required)")
 	work := fs.String("work", filepath.Join(os.TempDir(), "hyrum-corpus"), "working directory for clones and skill workspaces")
 	backend := fs.String("backend", "claude", "harness backend: "+harness.Names())
@@ -34,24 +39,33 @@ func cmdCorpus(args []string) error {
 	if *out == "" {
 		return fmt.Errorf("--out is required")
 	}
-	if len(dependents) == 0 {
-		return fmt.Errorf("at least one --dependent is required (auto-discovery pending git-pkgs/downstream#7)")
-	}
 
 	h, err := harness.ByName(*backend)
 	if err != nil {
 		return err
 	}
-	ctx := context.Background()
+	rc := registries.DefaultClient()
 	p := &pipeline{
 		h:       h,
-		rc:      registries.DefaultClient(),
+		rc:      rc,
 		work:    *work,
 		outRoot: *out,
 		run:     *run,
 	}
 
-	for _, spec := range dependents {
+	specs := []string(explicitDeps)
+	if *discoverN > 0 {
+		found, err := discoverDependents(ctx, rc, *upstream, *upstreamRepo, *discoverN)
+		if err != nil {
+			return fmt.Errorf("discover: %w", err)
+		}
+		specs = append(specs, found...)
+	}
+	if len(specs) == 0 {
+		return fmt.Errorf("no dependents: pass --dependent or --discover N")
+	}
+
+	for _, spec := range specs {
 		url, ref := splitDependentSpec(spec)
 		fmt.Fprintf(os.Stderr, "▶ dependent %s\n", spec)
 		dir := filepath.Join(*work, "targets", slugify(url))
@@ -74,6 +88,50 @@ func cmdCorpus(args []string) error {
 		}
 	}
 	return nil
+}
+
+// discoverDependents queries ecosyste.ms via git-pkgs/dependents for the
+// top-N repositories that depend on upstream, filtered to non-forks with a
+// repository URL, sorted by download count.
+func discoverDependents(ctx context.Context, rc *registries.Client, upstream, repo string, n int) ([]string, error) {
+	if repo == "" {
+		pkg, err := registries.FetchPackageFromPURL(ctx, upstream, rc)
+		if err != nil {
+			return nil, fmt.Errorf("resolve %s: %w (pass --upstream-repo)", upstream, err)
+		}
+		repo = pkg.Repository
+	}
+	if repo == "" {
+		return nil, fmt.Errorf("no repository URL for %s (pass --upstream-repo)", upstream)
+	}
+	ec, err := enrichment.NewEcosystemsClient()
+	if err != nil {
+		return nil, err
+	}
+	cands, err := dependents.DiscoverRepository(ctx, ec, repo, dependents.DiscoverOptions{
+		MaxDependentsPerPackage: n * 4,
+	})
+	if err != nil {
+		return nil, err
+	}
+	kept, _ := dependents.Filter(cands, dependents.FilterOptions{
+		ExcludeForks:    true,
+		ExcludeArchived: true,
+		ExcludeMirrors:  true,
+	})
+	sort.Slice(kept, func(i, j int) bool { return kept[i].Downloads > kept[j].Downloads })
+	var out []string
+	for _, c := range kept {
+		if c.Repository == "" {
+			continue
+		}
+		out = append(out, c.Repository)
+		fmt.Fprintf(os.Stderr, "  discovered %s (%d downloads)\n", c.Repository, c.Downloads)
+		if len(out) >= n {
+			break
+		}
+	}
+	return out, nil
 }
 
 // splitDependentSpec parses "url" or "url@ref". The @ is taken from the end
