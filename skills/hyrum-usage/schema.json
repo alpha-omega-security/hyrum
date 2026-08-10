@@ -1,0 +1,39 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["calls"],
+  "additionalProperties": false,
+  "properties": {
+    "entry_points": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/site"}
+    },
+    "calls": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["member", "sites"],
+        "additionalProperties": false,
+        "properties": {
+          "receiver": {"type": "string", "description": "How the value was obtained, e.g. 'new require(\"ws\").Server(...)' or 'connection callback arg'"},
+          "member": {"type": "string", "description": "Method or property name, e.g. 'handleUpgrade', 'send', 'on(\"message\")'"},
+          "args": {"type": "array", "items": {"type": "string"}, "description": "Observed argument shapes or literal examples"},
+          "returns": {"type": "string", "description": "What the target does with the return value, if anything"},
+          "sites": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/site"}}
+        }
+      }
+    },
+    "notes": {"type": "string"}
+  },
+  "$defs": {
+    "site": {
+      "type": "object",
+      "required": ["file", "line"],
+      "properties": {
+        "file": {"type": "string"},
+        "line": {"type": "integer"},
+        "context": {"type": "string"}
+      }
+    }
+  }
+}

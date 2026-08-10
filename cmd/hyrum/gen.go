@@ -56,9 +56,13 @@ func cmdGen(args []string) error {
 
 	for _, d := range selected {
 		ws := filepath.Join(*work, d.Ecosystem, d.Name)
-		if err := stageContext(ctx, t, d, ws, rc); err != nil {
+		depDir, err := stageContext(ctx, t, d, ws, rc)
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "  %s: stage: %v\n", d.Name, err)
 			continue
+		}
+		if err := hyrum.GatherHistory(ctx, t, d, depDir, ws); err != nil {
+			fmt.Fprintf(os.Stderr, "  %s: history: %v\n", d.Name, err)
 		}
 		if !*run {
 			job := harness.Job{Workspace: ws, SrcDir: "target", SkillName: "hyrum-generate", OutputFile: "tests.json"}
@@ -67,9 +71,28 @@ func cmdGen(args []string) error {
 		}
 
 		fmt.Fprintf(os.Stderr, "→ %s (%s)\n", d.Name, d.PURL)
-		res, err := hyrum.RunSkill(ctx, h, ws, "hyrum-generate", "tests.json")
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "  %s: %v\n", d.Name, err)
+		steps := []struct{ skill, out string }{
+			{"hyrum-usage", "surface.json"},
+			{"hyrum-history", "breaks.json"},
+			{"hyrum-generate", "tests.json"},
+		}
+		var res *hyrum.RunResult
+		var totalCost float64
+		for _, s := range steps {
+			fmt.Fprintf(os.Stderr, "  [%s]\n", s.skill)
+			r, err := hyrum.RunSkill(ctx, h, ws, s.skill, s.out)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "  %s/%s: %v\n", d.Name, s.skill, err)
+				// usage and history are enrichment; generate is required.
+				if s.skill == "hyrum-generate" {
+					res = nil
+				}
+				continue
+			}
+			totalCost += r.CostUSD
+			res = r
+		}
+		if res == nil {
 			continue
 		}
 
@@ -83,13 +106,12 @@ func cmdGen(args []string) error {
 			"ecosystem":  d.Ecosystem,
 			"baseline":   d.Version,
 			"session_id": res.SessionID,
-			"turns":      res.Turns,
-			"cost_usd":   res.CostUSD,
+			"cost_usd":   totalCost,
 			"notes":      res.Output.Notes,
 		}); err != nil {
 			return err
 		}
-		fmt.Printf("%s: %d file(s) → %s ($%.4f)\n", d.Name, len(written), outDir, res.CostUSD)
+		fmt.Printf("%s: %d file(s) → %s ($%.4f)\n", d.Name, len(written), outDir, totalCost)
 	}
 	return nil
 }
@@ -118,26 +140,29 @@ func targetName(t *hyrum.Target) string {
 //	ws/dep-outline.md     outline.Pack of ws/dep
 //	ws/usage.json         usage.Index of target against dep
 //	ws/context.json       purl, versions, ecosystem
-func stageContext(ctx context.Context, t *hyrum.Target, d hyrum.Dep, ws string, rc *registries.Client) error {
+//
+// Returns the dep clone directory (empty when no repo URL was found) so
+// callers can pass it to GatherHistory for changelog discovery.
+func stageContext(ctx context.Context, t *hyrum.Target, d hyrum.Dep, ws string, rc *registries.Client) (string, error) {
 	if err := os.MkdirAll(ws, 0o755); err != nil {
-		return err
+		return "", err
 	}
 
 	// Target: symlink so the skill sees the real tree without a copy.
 	targetLink := filepath.Join(ws, "target")
 	_ = os.Remove(targetLink)
 	if err := os.Symlink(t.Path, targetLink); err != nil {
-		return fmt.Errorf("link target: %w", err)
+		return "", fmt.Errorf("link target: %w", err)
 	}
 
 	// Usage surface (works even without the dep clone).
 	surf, err := usage.Index(d.Ecosystem, t.Path, d.Name)
 	if err != nil {
-		return fmt.Errorf("usage: %w", err)
+		return "", fmt.Errorf("usage: %w", err)
 	}
 	surf.PURL = d.PURL
 	if err := writeJSON(filepath.Join(ws, "usage.json"), surf); err != nil {
-		return err
+		return "", err
 	}
 
 	// Dep source + outline: best-effort. Registries gives the repo URL;
@@ -155,25 +180,25 @@ func stageContext(ctx context.Context, t *hyrum.Target, d hyrum.Dep, ws string, 
 		meta["registry_error"] = rerr.Error()
 	}
 	if err := writeJSON(filepath.Join(ws, "context.json"), meta); err != nil {
-		return err
+		return "", err
 	}
 	if repoURL == "" {
-		return nil
+		return "", nil
 	}
 	depDir := filepath.Join(ws, "dep")
 	if err := clone.Ensure(ctx, clone.Retry{}, repoURL, depDir, "", false); err != nil {
-		return fmt.Errorf("clone %s: %w", repoURL, err)
+		return "", fmt.Errorf("clone %s: %w", repoURL, err)
 	}
 	res, err := outline.Pack(depDir, outline.Options{Compress: true})
 	if err != nil {
-		return fmt.Errorf("outline: %w", err)
+		return depDir, fmt.Errorf("outline: %w", err)
 	}
 	f, err := os.Create(filepath.Join(ws, "dep-outline.md"))
 	if err != nil {
-		return err
+		return depDir, err
 	}
 	defer f.Close()
-	return res.Markdown(f)
+	return depDir, res.Markdown(f)
 }
 
 func lookupRepo(ctx context.Context, rc *registries.Client, d hyrum.Dep) (repoURL, latest string, err error) {

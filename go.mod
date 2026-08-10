@@ -5,10 +5,12 @@ go 1.26
 require (
 	github.com/alpha-omega-security/harness v0.0.0
 	github.com/git-pkgs/brief v0.0.0
+	github.com/git-pkgs/changelog v0.0.0
 	github.com/git-pkgs/clone v0.0.0
 	github.com/git-pkgs/outline v0.1.8
 	github.com/git-pkgs/purl v0.1.15
 	github.com/git-pkgs/registries v0.6.4
+	github.com/git-pkgs/vulns v0.2.1
 )
 
 require (
@@ -25,6 +27,8 @@ require (
 	github.com/github/go-spdx/v2 v2.7.0 // indirect
 	github.com/odvcencio/gotreesitter v0.47.0 // indirect
 	github.com/package-url/packageurl-go v0.1.6 // indirect
+	github.com/pandatix/go-cvss v0.6.2 // indirect
+	github.com/rogpeppe/go-internal v1.16.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
@@ -33,8 +37,10 @@ require (
 replace (
 	github.com/alpha-omega-security/harness => ../harness
 	github.com/git-pkgs/brief => ../../git-pkgs/brief
+	github.com/git-pkgs/changelog => ../../git-pkgs/changelog
 	github.com/git-pkgs/clone => ../../git-pkgs/clone
 	github.com/git-pkgs/manifests => ../../git-pkgs/manifests
 	github.com/git-pkgs/outline => ../../git-pkgs/outline
 	github.com/git-pkgs/registries => ../../git-pkgs/registries
+	github.com/git-pkgs/vulns => ../../git-pkgs/vulns
 )

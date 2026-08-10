@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["breaks"],
+  "additionalProperties": false,
+  "properties": {
+    "breaks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["symbol", "change", "evidence"],
+        "additionalProperties": false,
+        "properties": {
+          "symbol": {"type": "string", "description": "Dependency export or member affected, e.g. 'Server.handleProtocols', 'parse_authorization_header'"},
+          "change": {"type": "string", "description": "What changed: removed, renamed to X, return type A->B, now throws on Y, default changed"},
+          "versions": {"type": "string", "description": "Version range where the change landed if known, e.g. '>=8.0.0'"},
+          "evidence": {
+            "type": "object",
+            "required": ["kind", "ref"],
+            "properties": {
+              "kind": {"enum": ["commit", "changelog", "advisory", "pr"]},
+              "ref": {"type": "string", "description": "sha, version string, advisory id, or PR number"},
+              "quote": {"type": "string", "description": "The line from the source that states the change"}
+            }
+          }
+        }
+      }
+    },
+    "notes": {"type": "string"}
+  }
+}
