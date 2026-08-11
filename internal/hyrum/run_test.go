@@ -2,10 +2,13 @@ package hyrum
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/alpha-omega-security/harness"
 )
@@ -19,6 +22,8 @@ type shHarness struct {
 	payload string // JSON body to write to tests.json
 	exit    int
 	noWrite bool
+	stderr  string
+	block   bool
 }
 
 func (h shHarness) Binary() string { return "/bin/sh" }
@@ -27,6 +32,12 @@ func (h shHarness) Args(j harness.Job) []string {
 	var script string
 	if !h.noWrite {
 		script = fmt.Sprintf("printf %%s %q > %q; ", h.payload, j.OutputFile)
+	}
+	if h.stderr != "" {
+		script += fmt.Sprintf("printf %%s %q >&2; ", h.stderr)
+	}
+	if h.block {
+		script += "sleep 30; "
 	}
 	script += fmt.Sprintf("exit %d", h.exit)
 	return []string{"-c", script}
@@ -109,11 +120,153 @@ func TestRunSkillInvalidJSON(t *testing.T) {
 	}
 }
 
-func TestRunSkillBackendFailure(t *testing.T) {
+func TestRunSkillBackendFailureWithFreshOutputRecovers(t *testing.T) {
+	ws := t.TempDir()
+	body := `{"files":[{"path":"test_recovered.js","content":"// recovered\n"}]}`
+	h := shHarness{payload: body, exit: 1}
+	res, err := RunSkillWithEmit(context.Background(), h, ws, "hyrum-generate", "tests.json", nil)
+	if err != nil {
+		t.Fatalf("fresh valid output should survive backend failure: %v", err)
+	}
+	if res.BackendError == "" {
+		t.Fatal("recovered result did not retain backend error")
+	}
+	var gen GenerateResult
+	if err := res.Decode(&gen); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(gen.Files) != 1 || gen.Files[0].Path != "test_recovered.js" {
+		t.Fatalf("output = %+v", gen)
+	}
+}
+
+func TestRunSkillBackendFailureWithoutOutputFails(t *testing.T) {
+	ws := t.TempDir()
+	h := shHarness{exit: 1, noWrite: true}
+	if _, err := RunSkillWithEmit(context.Background(), h, ws, "hyrum-generate", "tests.json", nil); err == nil {
+		t.Fatal("want error when backend fails without output")
+	}
+}
+
+func TestRunSkillBackendFailureDoesNotReuseStaleOutput(t *testing.T) {
+	ws := t.TempDir()
+	path := filepath.Join(ws, "tests.json")
+	if err := os.WriteFile(path, []byte(`{"files":[{"path":"stale.js","content":"// stale"}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := shHarness{exit: 1, noWrite: true}
+	if _, err := RunSkillWithEmit(context.Background(), h, ws, "hyrum-generate", "tests.json", nil); err == nil {
+		t.Fatal("want error rather than stale output")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("stale output was not removed: %v", err)
+	}
+}
+
+func TestRunSkillBackendFailureWithInvalidOutputFails(t *testing.T) {
+	ws := t.TempDir()
+	h := shHarness{payload: "not json", exit: 1}
+	if _, err := RunSkillWithEmit(context.Background(), h, ws, "hyrum-generate", "tests.json", nil); err == nil {
+		t.Fatal("want error when backend fails with invalid output")
+	}
+}
+
+func TestRunSkillBackendFailureWithEmptyGenerateOutputFails(t *testing.T) {
+	for _, payload := range []string{`{"files":[]}`, `{}`, `null`} {
+		t.Run(payload, func(t *testing.T) {
+			ws := t.TempDir()
+			h := shHarness{payload: payload, exit: 1}
+			if _, err := RunSkillWithEmit(context.Background(), h, ws, "hyrum-generate", "tests.json", nil); err == nil {
+				t.Fatal("want error when failed backend writes no generated files")
+			}
+		})
+	}
+}
+
+func TestRunSkillBackendFailureWithRenamedEmptyGenerateOutputFails(t *testing.T) {
 	ws := t.TempDir()
 	h := shHarness{payload: `{"files":[]}`, exit: 1}
-	if _, err := RunSkillWithEmit(context.Background(), h, ws, "hyrum-generate", "tests.json", nil); err == nil {
-		t.Fatal("want error on non-zero exit")
+	if _, err := RunSkillWithEmit(context.Background(), h, ws, "hyrum-generate", "generated.json", nil); err == nil {
+		t.Fatal("want generate recovery policy to be independent of output filename")
+	}
+}
+
+func TestRunSkillBackendFailureWithEmptyValidateOutputFails(t *testing.T) {
+	for _, payload := range []string{`{"verdicts":[]}`, `{}`, `null`} {
+		t.Run(payload, func(t *testing.T) {
+			ws := t.TempDir()
+			h := shHarness{payload: payload, exit: 1}
+			if _, err := RunSkillWithEmit(context.Background(), h, ws, "hyrum-validate", "verdict.json", nil); err == nil {
+				t.Fatal("want error when failed validation backend writes no verdicts")
+			}
+		})
+	}
+}
+
+func TestRunSkillBackendFailureWithValidateVerdictRecovers(t *testing.T) {
+	ws := t.TempDir()
+	body := `{"verdicts":[{"test":"t","status":"weak","action":"strengthen","reasoning":"r"}]}`
+	h := shHarness{payload: body, exit: 1}
+	res, err := RunSkillWithEmit(context.Background(), h, ws, "hyrum-validate", "verdict.json", nil)
+	if err != nil {
+		t.Fatalf("usable validate output should survive backend failure: %v", err)
+	}
+	if res.BackendError == "" {
+		t.Fatal("recovered result did not retain backend warning")
+	}
+	var out ValidateResult
+	if err := res.Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Verdicts) != 1 {
+		t.Fatalf("verdicts = %+v", out.Verdicts)
+	}
+}
+
+func TestRunSkillCancelledRunIsFatal(t *testing.T) {
+	ws := t.TempDir()
+	body := `{"files":[{"path":"test_partial.js","content":"// partial\n"}]}`
+	h := shHarness{payload: body, block: true}
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	if _, err := RunSkillWithEmit(ctx, h, ws, "hyrum-generate", "tests.json", nil); err == nil {
+		t.Fatal("want cancellation to remain fatal despite fresh output")
+	}
+}
+
+func TestRunSkillAccountErrorIsFatal(t *testing.T) {
+	ws := t.TempDir()
+	body := `{"files":[{"path":"test_partial.js","content":"// partial\n"}]}`
+	h := shHarness{payload: body, stderr: "Credit balance is too low", exit: 1}
+
+	_, err := RunSkillWithEmit(context.Background(), h, ws, "hyrum-generate", "tests.json", nil)
+	var accountErr *harness.AccountError
+	if !errors.As(err, &accountErr) {
+		t.Fatalf("want typed account error, got %v", err)
+	}
+}
+
+func TestPrepareOutputRejectsSymlinkedDirectory(t *testing.T) {
+	ws := t.TempDir()
+	outside := t.TempDir()
+	victim := filepath.Join(outside, "victim.json")
+	if err := os.WriteFile(victim, []byte("important"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(ws, "sub")); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := prepareOutput(ws, filepath.Join("sub", "victim.json")); err == nil {
+		t.Fatal("want nested output path rejected")
+	}
+	b, err := os.ReadFile(victim)
+	if err != nil {
+		t.Fatalf("outside file was removed: %v", err)
+	}
+	if !strings.EqualFold(string(b), "important") {
+		t.Fatalf("outside file changed: %q", b)
 	}
 }
 
