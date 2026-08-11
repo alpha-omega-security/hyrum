@@ -7,10 +7,15 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/git-pkgs/managers"
 )
+
+// errorTailBytes bounds how much of a failed test-runner's combined output
+// is kept in VerifyResult.Error when the output could not be parsed at all.
+const errorTailBytes = 500
 
 // VerifyResult is the outcome of running generated tests against one
 // dependency version.
@@ -75,7 +80,7 @@ func verifyOne(ctx context.Context, mgr managers.Manager, tc TestCommand, scratc
 	output, runErr := c.CombinedOutput()
 	res.Pass, res.Fail, res.Failed = parseTestOutput(string(output))
 	if runErr != nil && res.Fail == 0 && res.Pass == 0 {
-		res.Error = fmt.Sprintf("%s: %v: %s", argv[0], runErr, tail(string(output), 500))
+		res.Error = fmt.Sprintf("%s: %v: %s", argv[0], runErr, tail(string(output), errorTailBytes))
 	}
 	return res
 }
@@ -128,13 +133,8 @@ func parseTestOutput(out string) (pass, fail int, failed []string) {
 }
 
 func atoi(s string) int {
-	n := 0
-	for _, c := range s {
-		if c < '0' || c > '9' {
-			break
-		}
-		n = n*10 + int(c-'0')
-	}
+	// Callers pass regex \d+ captures, so the input is always decimal digits.
+	n, _ := strconv.Atoi(s)
 	return n
 }
 

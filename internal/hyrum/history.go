@@ -151,6 +151,61 @@ func (h *HistoryIndex) WriteGitLog(dep, path string) error {
 	return os.WriteFile(path, []byte(b.String()), 0o644)
 }
 
+// maxLogRecord bounds a single git-log record (SHA + date + subject + body
+// + optional file list). It exists so a repository with a multi-megabyte
+// commit body cannot exhaust memory via bufio.Scanner's growing buffer.
+const maxLogRecord = 8 << 20
+
+// logFields is the number of US-separated fields in the streamLog format
+// string: SHA, date, subject, body.
+const logFields = 4
+
+// parseLogRecord splits one NUL-delimited record from streamLog into a
+// Commit. With nameOnly, the file list trails the body inside the same
+// record; a body ends at the first blank line and everything after it is
+// one path per line.
+func parseLogRecord(rec, us string, nameOnly bool) (Commit, bool) {
+	fields := strings.SplitN(rec, us, logFields)
+	if len(fields) < logFields {
+		return Commit{}, false
+	}
+	body := fields[3]
+	var files []string
+	if nameOnly {
+		body, files = splitBodyFiles(body)
+	}
+	return Commit{
+		SHA:     strings.TrimLeft(fields[0], "\n"),
+		Date:    fields[1],
+		Subject: fields[2],
+		Body:    strings.TrimSpace(body),
+		Files:   files,
+	}, true
+}
+
+// splitBodyFiles separates the commit body from the trailing --name-only
+// file list. The body ends at the first blank line; when the body is empty
+// the record is only file paths after a leading newline.
+func splitBodyFiles(body string) (string, []string) {
+	if i := strings.Index(body, "\n\n"); i >= 0 {
+		return body[:i], nonEmptyLines(body[i+len("\n\n"):])
+	}
+	if j := strings.LastIndexByte(body, '\n'); j >= 0 && body[:j] == "" {
+		return "", nonEmptyLines(body)
+	}
+	return body, nil
+}
+
+func nonEmptyLines(s string) []string {
+	var out []string
+	for _, l := range strings.Split(strings.TrimSpace(s), "\n") {
+		if l != "" {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
 // streamLog runs `git log --all` in repo and calls fn for each commit. paths
 // restricts to commits touching those paths; nameOnly adds --name-only so
 // Commit.Files is populated. The format uses NUL between records and US
@@ -181,44 +236,12 @@ func streamLog(ctx context.Context, repo string, paths []string, nameOnly bool, 
 	}
 
 	sc := bufio.NewScanner(stdout)
-	sc.Buffer(make([]byte, 0, 64*1024), 8<<20)
+	sc.Buffer(nil, maxLogRecord)
 	sc.Split(splitOn(rs[0]))
 	for sc.Scan() {
-		rec := sc.Text()
-		// With --name-only, the file list follows the format string on
-		// subsequent lines within the same NUL-terminated record.
-		fields := strings.SplitN(rec, us, 4)
-		if len(fields) < 4 {
-			continue
+		if c, ok := parseLogRecord(sc.Text(), us, nameOnly); ok {
+			fn(c)
 		}
-		body := fields[3]
-		var files []string
-		if nameOnly {
-			// Body ends at the first \n\n; what follows is the file list.
-			if i := strings.Index(body, "\n\n"); i >= 0 {
-				for _, f := range strings.Split(strings.TrimSpace(body[i+2:]), "\n") {
-					if f != "" {
-						files = append(files, f)
-					}
-				}
-				body = body[:i]
-			} else if j := strings.LastIndexByte(body, '\n'); j >= 0 && body[:j] == "" {
-				// Empty body: everything after the leading newline is files.
-				for _, f := range strings.Split(strings.TrimSpace(body), "\n") {
-					if f != "" {
-						files = append(files, f)
-					}
-				}
-				body = ""
-			}
-		}
-		fn(Commit{
-			SHA:     strings.TrimLeft(fields[0], "\n"),
-			Date:    fields[1],
-			Subject: fields[2],
-			Body:    strings.TrimSpace(body),
-			Files:   files,
-		})
 	}
 	if err := sc.Err(); err != nil {
 		_ = cmd.Wait()

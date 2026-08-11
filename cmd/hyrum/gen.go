@@ -18,6 +18,19 @@ import (
 	"github.com/git-pkgs/vers"
 )
 
+// skillSteps are the harness invocations genOne runs in order. usage and
+// history are best-effort (their outputs feed generate but generate can
+// still work from usage.json and dep-outline.md alone); a generate failure
+// is fatal because there is nothing to write without it.
+var skillSteps = []struct {
+	name, out string
+	required  bool
+}{
+	{"hyrum-usage", "surface.json", false},
+	{"hyrum-history", "breaks.json", false},
+	{"hyrum-generate", "tests.json", true},
+}
+
 // cmdGen runs the generation pipeline for one or more dependencies: stage the
 // context bundle, gather history inputs, then run the usage/history/generate
 // skills in sequence. Without --run it stops after staging so the workspace
@@ -120,7 +133,8 @@ func (p *pipeline) genOne(ctx context.Context, t *hyrum.Target, idx *hyrum.Histo
 		fmt.Fprintf(os.Stderr, "  %s: history: %v\n", d.Name, err)
 	}
 	if !p.run {
-		job := harness.Job{Workspace: ws, SrcDir: "target", SkillName: "hyrum-generate", OutputFile: "tests.json"}
+		last := skillSteps[len(skillSteps)-1]
+		job := harness.Job{Workspace: ws, SrcDir: "target", SkillName: last.name, OutputFile: last.out}
 		fmt.Printf("staged %s: %s %v\n", d.Name, p.h.Binary(), p.h.Args(job))
 		return nil
 	}
@@ -130,19 +144,14 @@ func (p *pipeline) genOne(ctx context.Context, t *hyrum.Target, idx *hyrum.Histo
 	if runner == nil {
 		runner = hyrum.ContainerRunner{Image: p.containerImage, TargetPath: t.Path}
 	}
-	steps := []struct{ skill, out string }{
-		{"hyrum-usage", "surface.json"},
-		{"hyrum-history", "breaks.json"},
-		{"hyrum-generate", "tests.json"},
-	}
 	var res *hyrum.RunResult
 	var totalCost float64
-	for _, s := range steps {
-		fmt.Fprintf(os.Stderr, "  [%s]\n", s.skill)
-		r, err := runner.RunSkill(ctx, p.h, ws, s.skill, s.out)
+	for _, s := range skillSteps {
+		fmt.Fprintf(os.Stderr, "  [%s]\n", s.name)
+		r, err := runner.RunSkill(ctx, p.h, ws, s.name, s.out)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "  %s/%s: %v\n", d.Name, s.skill, err)
-			if s.skill == "hyrum-generate" {
+			fmt.Fprintf(os.Stderr, "  %s/%s: %v\n", d.Name, s.name, err)
+			if s.required {
 				return err
 			}
 			continue

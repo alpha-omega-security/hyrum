@@ -36,70 +36,81 @@ func cmdCheck(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	// brief has already picked a package manager for this repo; hand that name
-	// to managers.Detect so its ranking (which prefers bun over npm for a bare
-	// package.json) does not override what the lockfile or config indicates.
-	// brief titles some names ("Bun"); managers keys are lowercase.
-	hint := ""
-	for _, pm := range t.Report.PackageManagers {
-		if pm.Lockfile != "" {
-			if _, err := os.Stat(filepath.Join(t.Path, pm.Lockfile)); err == nil {
-				hint = strings.ToLower(pm.Name)
-				break
-			}
-		}
-	}
-	if hint == "" && len(t.Report.PackageManagers) > 0 {
-		hint = strings.ToLower(t.Report.PackageManagers[0].Name)
-	}
-	mgr, err := detectManager(t.Path, hint)
+	mgr, err := detectManager(t.Path, managerHint(t))
 	if err != nil {
 		return fmt.Errorf("detect package manager: %w", err)
 	}
 
 	testsRoot := outRoot(t.Path, *root)
 	failed := false
-
 	for _, spec := range deps {
-		name, version := splitDepSpec(spec)
-		d, _ := findDep(t, name)
-		if d.Ecosystem == "" {
-			d.Ecosystem = mgr.Ecosystem()
-		}
-
-		testDir := filepath.Join(testsRoot, name)
-		if _, err := os.Stat(testDir); err != nil {
-			fmt.Fprintf(os.Stderr, "%s: no tests at %s\n", name, testDir)
-			continue
-		}
-
-		if version != "" {
-			fmt.Fprintf(os.Stderr, "→ %s add %s@%s\n", mgr.Name(), name, version)
-			if r, err := mgr.Add(ctx, name, managers.AddOptions{Version: version}); err != nil || !r.Success() {
-				fmt.Fprintf(os.Stderr, "  install failed: %v %s\n", err, r.Stderr)
-				failed = true
-				continue
-			}
-		}
-
-		ok, out, err := runTests(ctx, t.Path, testDir, d.Ecosystem)
+		ok, err := checkOne(ctx, t, mgr, testsRoot, spec)
 		if err != nil {
-			return fmt.Errorf("%s: %w", name, err)
+			return err
 		}
-		status := "PASS"
-		if !ok {
-			status = "FAIL"
-			failed = true
-		}
-		fmt.Printf("%s@%s: %s\n", name, versionOr(version, d.Version), status)
-		if !ok {
-			fmt.Println(indent(out, "  "))
-		}
+		failed = failed || !ok
 	}
 	if failed {
 		return fmt.Errorf("one or more checks failed")
 	}
 	return nil
+}
+
+// managerHint returns the package-manager name to hand to managers.Detect so
+// its ranking (which prefers bun over npm for a bare package.json) does not
+// override what a lockfile or config already indicates. brief titles some
+// names ("Bun"); managers keys are lowercase.
+func managerHint(t *hyrum.Target) string {
+	for _, pm := range t.Report.PackageManagers {
+		if pm.Lockfile == "" {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(t.Path, pm.Lockfile)); err == nil {
+			return strings.ToLower(pm.Name)
+		}
+	}
+	if len(t.Report.PackageManagers) > 0 {
+		return strings.ToLower(t.Report.PackageManagers[0].Name)
+	}
+	return ""
+}
+
+// checkOne installs one dep spec and runs the tests generated for it. It
+// returns whether the tests passed; a returned error is a hard failure such
+// as an unknown ecosystem, distinct from a test failure.
+func checkOne(ctx context.Context, t *hyrum.Target, mgr managers.Manager, testsRoot, spec string) (bool, error) {
+	name, version := splitDepSpec(spec)
+	d, _ := findDep(t, name)
+	if d.Ecosystem == "" {
+		d.Ecosystem = mgr.Ecosystem()
+	}
+
+	testDir := filepath.Join(testsRoot, name)
+	if _, err := os.Stat(testDir); err != nil {
+		fmt.Fprintf(os.Stderr, "%s: no tests at %s\n", name, testDir)
+		return true, nil
+	}
+	if version != "" {
+		fmt.Fprintf(os.Stderr, "→ %s add %s@%s\n", mgr.Name(), name, version)
+		if r, err := mgr.Add(ctx, name, managers.AddOptions{Version: version}); err != nil || !r.Success() {
+			fmt.Fprintf(os.Stderr, "  install failed: %v %s\n", err, r.Stderr)
+			return false, nil
+		}
+	}
+
+	ok, out, err := runTests(ctx, t.Path, testDir, d.Ecosystem)
+	if err != nil {
+		return false, fmt.Errorf("%s: %w", name, err)
+	}
+	status := "PASS"
+	if !ok {
+		status = "FAIL"
+	}
+	fmt.Printf("%s@%s: %s\n", name, versionOr(version, d.Version), status)
+	if !ok {
+		fmt.Println(indent(out, "  "))
+	}
+	return ok, nil
 }
 
 // testRunners maps a purl ecosystem type to the command that runs tests under
@@ -108,9 +119,9 @@ func cmdCheck(ctx context.Context, args []string) error {
 // The dir argument is a relative path; files is the pre-globbed list of test
 // files under it for runners that need explicit paths.
 var testRunners = map[string]func(dir string, files []string) []string{
-	"npm":    func(_ string, files []string) []string { return append([]string{"node", "--test"}, files...) },
-	"pypi":   func(dir string, _ []string) []string { return []string{"python3", "-m", "pytest", "-q", dir} },
-	"golang": func(dir string, _ []string) []string { return []string{"go", "test", "./" + dir + "/..."} },
+	hyrum.EcoNPM:  func(_ string, files []string) []string { return append([]string{"node", "--test"}, files...) },
+	hyrum.EcoPyPI: func(dir string, _ []string) []string { return []string{"python3", "-m", "pytest", "-q", dir} },
+	hyrum.EcoGo:   func(dir string, _ []string) []string { return []string{"go", "test", "./" + dir + "/..."} },
 }
 
 func runTests(ctx context.Context, targetRoot, testDir, ecosystem string) (ok bool, output string, err error) {
@@ -134,7 +145,7 @@ func runTests(ctx context.Context, targetRoot, testDir, ecosystem string) (ok bo
 	return runErr == nil, string(out), nil
 }
 
-func detectManager(dir, hint string) (managers.Manager, error) { //nolint:ireturn // registry lookup
+func detectManager(dir, hint string) (managers.Manager, error) {
 	defs, err := definitions.LoadEmbedded()
 	if err != nil {
 		return nil, err
@@ -151,18 +162,18 @@ func detectManager(dir, hint string) (managers.Manager, error) { //nolint:iretur
 // ecosystem the entry is the one whose Init produces a manifest that Add can
 // then target without further setup.
 var ecosystemManager = map[string]string{
-	"npm":      "npm",
-	"pypi":     "pip",
-	"golang":   "go",
-	"gem":      "bundler",
-	"cargo":    "cargo",
-	"composer": "composer",
-	"hex":      "mix",
+	hyrum.EcoNPM:      "npm",
+	hyrum.EcoPyPI:     "pip",
+	hyrum.EcoGo:       "go",
+	hyrum.EcoGem:      "bundler",
+	hyrum.EcoCargo:    "cargo",
+	hyrum.EcoComposer: "composer",
+	hyrum.EcoHex:      "mix",
 }
 
 // detectManagerFor constructs a manager for ecosystem in dir. dir may be
 // empty; the caller is expected to call mgr.Init before Add.
-func detectManagerFor(dir, ecosystem string) (managers.Manager, error) { //nolint:ireturn
+func detectManagerFor(dir, ecosystem string) (managers.Manager, error) {
 	name, ok := ecosystemManager[ecosystem]
 	if !ok {
 		return nil, fmt.Errorf("no default package manager mapped for ecosystem %q", ecosystem)

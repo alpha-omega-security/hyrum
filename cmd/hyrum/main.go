@@ -18,14 +18,33 @@ import (
 	"syscall"
 )
 
+const exitUsage = 2
+
+var commands = map[string]func(context.Context, []string) error{
+	"surface": cmdSurface,
+	"gen":     cmdGen,
+	"check":   cmdCheck,
+	"corpus":  cmdCorpus,
+}
+
 func main() {
 	os.Exit(run())
 }
 
 func run() int {
-	if len(os.Args) < 2 {
+	args := os.Args[1:]
+	if len(args) == 0 || args[0] == "help" || args[0] == "-h" || args[0] == "--help" {
 		printUsage()
-		return 2
+		if len(args) == 0 {
+			return exitUsage
+		}
+		return 0
+	}
+	cmd, ok := commands[args[0]]
+	if !ok {
+		fmt.Fprintf(os.Stderr, "hyrum: unknown subcommand %q\n\n", args[0])
+		printUsage()
+		return exitUsage
 	}
 	// Cancel the context on SIGINT/SIGTERM so harness.Run's cmd.Cancel
 	// terminates the backend's process group; without this a kill of hyrum
@@ -33,26 +52,8 @@ func run() int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	var err error
-	switch os.Args[1] {
-	case "surface":
-		err = cmdSurface(ctx, os.Args[2:])
-	case "gen":
-		err = cmdGen(ctx, os.Args[2:])
-	case "check":
-		err = cmdCheck(ctx, os.Args[2:])
-	case "corpus":
-		err = cmdCorpus(ctx, os.Args[2:])
-	case "help", "-h", "--help":
-		printUsage()
-		return 0
-	default:
-		fmt.Fprintf(os.Stderr, "hyrum: unknown subcommand %q\n\n", os.Args[1])
-		printUsage()
-		return 2
-	}
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "hyrum %s: %v\n", os.Args[1], err)
+	if err := cmd(ctx, args[1:]); err != nil {
+		fmt.Fprintf(os.Stderr, "hyrum %s: %v\n", args[0], err)
 		return 1
 	}
 	return 0

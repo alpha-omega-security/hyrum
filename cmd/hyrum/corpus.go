@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/alpha-omega-security/harness"
 	"github.com/alpha-omega-security/hyrum/internal/hyrum"
@@ -112,10 +113,8 @@ func discoverDependents(ctx context.Context, rc *registries.Client, upstream, re
 	}
 	// Over-fetch so filtering and ranking have a pool to work with;
 	// ecosyste.ms does not return dependents pre-sorted by popularity.
-	pool := n * 10
-	if pool < 50 {
-		pool = 50
-	}
+	const poolFactor, minPool = 10, 50
+	pool := max(n*poolFactor, minPool)
 	cands, err := dependents.DiscoverRepository(ctx, ec, repo, dependents.DiscoverOptions{
 		MaxDependentsPerPackage: pool,
 	})
@@ -163,13 +162,12 @@ func lastAt(s string) int {
 // indexOfScheme returns the position after "://" or after "git@", so an @ in
 // the auth/scheme portion is not mistaken for a ref separator.
 func indexOfScheme(s string) int {
-	for i := 0; i+2 < len(s); i++ {
-		if s[i] == ':' && s[i+1] == '/' && s[i+2] == '/' {
-			return i + 3
-		}
+	const scheme, sshUser = "://", "git@"
+	if i := strings.Index(s, scheme); i >= 0 {
+		return i + len(scheme)
 	}
-	if len(s) > 4 && s[:4] == "git@" {
-		return 4
+	if strings.HasPrefix(s, sshUser) {
+		return len(sshUser)
 	}
 	return 0
 }

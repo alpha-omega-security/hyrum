@@ -72,7 +72,8 @@ func surfaceSummary(t *hyrum.Target, directOnly, asJSON bool) error {
 	if asJSON {
 		return json.NewEncoder(os.Stdout).Encode(rows)
 	}
-	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	const columnGap = 2
+	tw := tabwriter.NewWriter(os.Stdout, 0, 0, columnGap, ' ', 0)
 	fmt.Fprintln(tw, "DEP\tECOSYSTEM\tVERSION\tSCOPE\tSYMBOLS\tSITES\tINDEX")
 	for _, r := range rows {
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d\t%d\t%s\n",
@@ -100,12 +101,13 @@ func surfaceDetail(t *hyrum.Target, names []string, asJSON bool) error {
 		enc.SetIndent("", "  ")
 		return enc.Encode(out)
 	}
+	const contextWidth = 80
 	for _, s := range out {
 		fmt.Printf("# %s (%s) — %d symbols\n", s.Dep, s.Ecosystem, s.UsedCount())
 		for _, sym := range s.Symbols {
 			fmt.Printf("  %s  [%s]  %d site(s)\n", sym.Name, sym.Kind, len(sym.Sites))
 			for _, site := range sym.Sites {
-				fmt.Printf("    %s:%d  %s\n", site.File, site.Line, truncate(site.Context, 80))
+				fmt.Printf("    %s:%d  %s\n", site.File, site.Line, truncate(site.Context, contextWidth))
 			}
 		}
 	}
