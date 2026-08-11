@@ -152,9 +152,10 @@ func (r ContainerRunner) RunSkill(ctx context.Context, h harness.Harness, ws, na
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w (skill did not write output)", outputFile, err)
 	}
-	if err := json.Unmarshal(b, &res.Output); err != nil {
-		return nil, fmt.Errorf("parse %s: %w", outputFile, err)
+	if !json.Valid(b) {
+		return nil, fmt.Errorf("%s is not valid JSON", outputFile)
 	}
+	res.Output = b
 	return res, nil
 }
 

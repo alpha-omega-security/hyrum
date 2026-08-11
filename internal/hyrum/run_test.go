@@ -41,11 +41,15 @@ func TestRunSkillWritesFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunSkill: %v", err)
 	}
-	if len(res.Output.Files) != 1 || res.Output.Files[0].Path != "test_a.js" {
-		t.Fatalf("output = %+v", res.Output)
+	var gen GenerateResult
+	if err := res.Decode(&gen); err != nil {
+		t.Fatalf("decode: %v", err)
 	}
-	if res.Output.Notes != "ok" {
-		t.Errorf("notes = %q", res.Output.Notes)
+	if len(gen.Files) != 1 || gen.Files[0].Path != "test_a.js" {
+		t.Fatalf("output = %+v", gen)
+	}
+	if gen.Notes != "ok" {
+		t.Errorf("notes = %q", gen.Notes)
 	}
 
 	// Skill bundle was staged into the backend's discovery dir.
@@ -62,7 +66,7 @@ func TestRunSkillWritesFiles(t *testing.T) {
 	}
 
 	out := t.TempDir()
-	written, err := WriteFiles(out, res.Output.Files)
+	written, err := WriteFiles(out, gen.Files)
 	if err != nil {
 		t.Fatalf("WriteFiles: %v", err)
 	}
@@ -72,6 +76,36 @@ func TestRunSkillWritesFiles(t *testing.T) {
 	b, _ := os.ReadFile(written[0])
 	if string(b) != "// generated\n" {
 		t.Errorf("file body = %q", b)
+	}
+}
+
+func TestRunSkillDecodeValidate(t *testing.T) {
+	ws := t.TempDir()
+	body := `{"verdicts":[{"test":"t","status":"real_break","action":"keep","reasoning":"r"}],"notes":"n"}`
+	h := shHarness{payload: body}
+	res, err := RunSkillWithEmit(context.Background(), h, ws, "hyrum-validate", "verdict.json", func(harness.Event) {})
+	if err != nil {
+		t.Fatalf("RunSkill: %v", err)
+	}
+	var v ValidateResult
+	if err := res.Decode(&v); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(v.Verdicts) != 1 || v.Verdicts[0].Status != "real_break" || v.Verdicts[0].Action != "keep" {
+		t.Errorf("verdicts = %+v", v)
+	}
+	// Output should also decode into GenerateResult without error, just empty.
+	var g GenerateResult
+	if err := res.Decode(&g); err != nil || len(g.Files) != 0 {
+		t.Errorf("cross-decode: err=%v files=%d", err, len(g.Files))
+	}
+}
+
+func TestRunSkillInvalidJSON(t *testing.T) {
+	ws := t.TempDir()
+	h := shHarness{payload: "not json"}
+	if _, err := RunSkillWithEmit(context.Background(), h, ws, "hyrum-generate", "tests.json", nil); err == nil {
+		t.Fatal("want error on invalid JSON output")
 	}
 }
 

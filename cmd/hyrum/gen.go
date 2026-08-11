@@ -162,9 +162,13 @@ func (p *pipeline) genOne(ctx context.Context, t *hyrum.Target, idx *hyrum.Histo
 	if res == nil {
 		return fmt.Errorf("generate produced no output")
 	}
+	var gen hyrum.GenerateResult
+	if err := res.Decode(&gen); err != nil {
+		return fmt.Errorf("decode tests.json: %w", err)
+	}
 
 	outDir := filepath.Join(p.outRoot, d.Name, "from_"+targetName(t))
-	written, err := hyrum.WriteFiles(outDir, res.Output.Files)
+	written, err := hyrum.WriteFiles(outDir, gen.Files)
 	if err != nil {
 		return fmt.Errorf("write: %w", err)
 	}
@@ -175,16 +179,72 @@ func (p *pipeline) genOne(ctx context.Context, t *hyrum.Target, idx *hyrum.Histo
 		"target":     targetName(t),
 		"session_id": res.SessionID,
 		"cost_usd":   totalCost,
-		"notes":      res.Output.Notes,
+		"notes":      gen.Notes,
 	}
 	if p.verify {
-		meta["verify"] = p.runVerify(ctx, ws, d, latest, res.Output.Files)
+		verify := p.runVerify(ctx, ws, d, latest, gen.Files)
+		meta["verify"] = verify
+		if v, cost, err := p.runValidate(ctx, runner, ws, verify); err != nil {
+			fmt.Fprintf(os.Stderr, "  validate: %v\n", err)
+		} else if v != nil {
+			meta["validate"] = v.Verdicts
+			totalCost += cost
+			meta["cost_usd"] = totalCost
+			reportVerdicts(v.Verdicts)
+		}
 	}
 	if err := writeJSON(filepath.Join(outDir, "meta.json"), meta); err != nil {
 		return err
 	}
 	fmt.Printf("%s ← %s: %d file(s) → %s ($%.4f)\n", d.Name, targetName(t), len(written), outDir, totalCost)
 	return nil
+}
+
+// runValidate stages the verify results and runs the hyrum-validate skill to
+// classify each latest-version failure and flag weak assertions. It returns
+// nil when there is nothing to validate (verify errored or ran no tests).
+func (p *pipeline) runValidate(ctx context.Context, runner hyrum.Runner, ws string, verify []hyrum.VerifyResult) (*hyrum.ValidateResult, float64, error) {
+	if !anyRan(verify) {
+		return nil, 0, nil
+	}
+	if err := writeJSON(filepath.Join(ws, "verify.json"), verify); err != nil {
+		return nil, 0, err
+	}
+	fmt.Fprintf(os.Stderr, "  [hyrum-validate]\n")
+	r, err := runner.RunSkill(ctx, p.h, ws, "hyrum-validate", "verdict.json")
+	if err != nil {
+		return nil, 0, err
+	}
+	var out hyrum.ValidateResult
+	if err := r.Decode(&out); err != nil {
+		return nil, r.CostUSD, fmt.Errorf("decode verdict.json: %w", err)
+	}
+	return &out, r.CostUSD, nil
+}
+
+// anyRan reports whether at least one version's tests were parsed. A verify
+// slice of only Error entries means the runner never got as far as executing
+// tests, so there is nothing for validate to classify.
+func anyRan(rs []hyrum.VerifyResult) bool {
+	for _, r := range rs {
+		if r.Pass > 0 || r.Fail > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func reportVerdicts(vs []hyrum.Verdict) {
+	if len(vs) == 0 {
+		fmt.Fprintf(os.Stderr, "    validate: all tests adequate\n")
+		return
+	}
+	by := map[string]int{}
+	for _, v := range vs {
+		by[v.Status]++
+		fmt.Fprintf(os.Stderr, "    %s [%s→%s]: %s\n", v.Test, v.Status, v.Action, v.Reasoning)
+	}
+	fmt.Fprintf(os.Stderr, "    validate: %d verdict(s) — %v\n", len(vs), by)
 }
 
 // runVerify installs the dep at baseline and latest in a scratch dir under

@@ -168,8 +168,12 @@ history inputs down to a list of past compatibility fixes with evidence for
 each; `hyrum-generate` writes tests that mirror the observed calls and cite
 the source line or commit each was derived from. With `--verify`, the
 generated tests are run in a scratch directory against the target's baseline
-version and the dependency's latest release, and per-version pass/fail counts
-land in `meta.json` alongside the generation inputs.
+version and the dependency's latest release, and a fourth `hyrum-validate`
+step classifies each latest-version failure as a real behaviour change,
+an over-specific assertion, or an environment problem, plus flags any test
+whose only assertion is a shape check. Per-version results and per-test
+verdicts land in `meta.json`. See [docs/skills.md](docs/skills.md) for what
+each step reads and writes.
 
 ## Ecosystems
 

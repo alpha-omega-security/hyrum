@@ -17,6 +17,10 @@ import (
 // is kept in VerifyResult.Error when the output could not be parsed at all.
 const errorTailBytes = 500
 
+// maxVerifyOutput bounds VerifyResult.Output. It is large enough to hold the
+// assertion diffs the validate step reads while keeping meta.json bounded.
+const maxVerifyOutput = 16 << 10
+
 // VerifyResult is the outcome of running generated tests against one
 // dependency version.
 type VerifyResult struct {
@@ -24,7 +28,11 @@ type VerifyResult struct {
 	Pass    int      `json:"pass"`
 	Fail    int      `json:"fail"`
 	Failed  []string `json:"failed,omitempty"`
-	Error   string   `json:"error,omitempty"`
+	// Output is the test runner's combined stdout/stderr, truncated to
+	// maxVerifyOutput bytes from the tail so failure detail near the end of a
+	// long run is retained. Populated only when Fail > 0 or Error is set.
+	Output string `json:"output,omitempty"`
+	Error  string `json:"error,omitempty"`
 }
 
 // TestCommand returns the argv that runs test files under dir for the given
@@ -78,9 +86,13 @@ func verifyOne(ctx context.Context, mgr managers.Manager, tc TestCommand, scratc
 	c := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	c.Dir = scratch
 	output, runErr := c.CombinedOutput()
-	res.Pass, res.Fail, res.Failed = parseTestOutput(string(output))
+	out := string(output)
+	res.Pass, res.Fail, res.Failed = parseTestOutput(out)
 	if runErr != nil && res.Fail == 0 && res.Pass == 0 {
-		res.Error = fmt.Sprintf("%s: %v: %s", argv[0], runErr, tail(string(output), errorTailBytes))
+		res.Error = fmt.Sprintf("%s: %v: %s", argv[0], runErr, tail(out, errorTailBytes))
+	}
+	if res.Fail > 0 || res.Error != "" {
+		res.Output = tail(out, maxVerifyOutput)
 	}
 	return res
 }

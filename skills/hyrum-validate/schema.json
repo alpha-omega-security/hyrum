@@ -1,0 +1,43 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["verdicts"],
+  "additionalProperties": false,
+  "properties": {
+    "verdicts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["test", "status", "action", "reasoning"],
+        "additionalProperties": false,
+        "properties": {
+          "test": {
+            "type": "string",
+            "description": "Test name as it appears in verify.json's failed list, or the function/describe name from the test body"
+          },
+          "file": {
+            "type": "string",
+            "description": "Path from tests.json's files[].path"
+          },
+          "status": {
+            "enum": ["real_break", "over_specific", "env", "weak"],
+            "description": "real_break: dep changed behaviour the target depends on. over_specific: assertion pins something incidental. env: failure unrelated to dep version. weak: assertion would pass regardless of dep behaviour."
+          },
+          "action": {
+            "enum": ["keep", "weaken", "drop", "strengthen", "fix"],
+            "description": "keep: test is correct as-is. weaken: assert only the part the target reads. drop: nothing useful remains. strengthen: replace shape check with concrete value. fix: repair environment/setup issue."
+          },
+          "reasoning": {
+            "type": "string",
+            "description": "Cite the assertion diff from verify.json output, the changelog line, or the surface.json call site that supports this verdict."
+          },
+          "suggestion": {
+            "type": "string",
+            "description": "For weaken/strengthen/fix: the concrete replacement assertion or the change to make."
+          }
+        }
+      }
+    },
+    "notes": {"type": "string"}
+  }
+}

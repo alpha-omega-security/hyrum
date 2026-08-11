@@ -25,13 +25,35 @@ type GenerateResult struct {
 	Notes string          `json:"notes,omitempty"`
 }
 
+// Verdict is one entry in verdict.json from the hyrum-validate skill.
+type Verdict struct {
+	Test       string `json:"test"`
+	File       string `json:"file,omitempty"`
+	Status     string `json:"status"`
+	Action     string `json:"action"`
+	Reasoning  string `json:"reasoning"`
+	Suggestion string `json:"suggestion,omitempty"`
+}
+
+// ValidateResult is the parsed verdict.json from the hyrum-validate skill.
+type ValidateResult struct {
+	Verdicts []Verdict `json:"verdicts"`
+	Notes    string    `json:"notes,omitempty"`
+}
+
 // RunResult carries the skill output plus what the backend reported about the
-// invocation.
+// invocation. Output is the raw JSON body of the skill's output file; use
+// Decode to unmarshal it into the shape the invoked skill produces.
 type RunResult struct {
-	Output    GenerateResult
+	Output    json.RawMessage
 	CostUSD   float64
 	Turns     int
 	SessionID string
+}
+
+// Decode unmarshals the skill's output file into v.
+func (r *RunResult) Decode(v any) error {
+	return json.Unmarshal(r.Output, v)
 }
 
 // RunSkill stages the named skill into ws, invokes backend h with harness.Run,
@@ -93,14 +115,14 @@ func RunSkillWithEmit(ctx context.Context, h harness.Harness, ws, name, outputFi
 		return nil, err
 	}
 
-	outPath := filepath.Join(ws, outputFile)
-	b, err := os.ReadFile(outPath)
+	b, err := os.ReadFile(filepath.Join(ws, outputFile))
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w (skill did not write output)", outputFile, err)
 	}
-	if err := json.Unmarshal(b, &res.Output); err != nil {
-		return nil, fmt.Errorf("parse %s: %w", outputFile, err)
+	if !json.Valid(b) {
+		return nil, fmt.Errorf("%s is not valid JSON", outputFile)
 	}
+	res.Output = b
 	return res, nil
 }
 

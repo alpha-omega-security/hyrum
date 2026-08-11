@@ -54,7 +54,13 @@ func TestVerifyMatrixNPM(t *testing.T) {
 	if res[0].Version != "7.4.2" || res[0].Fail != 0 || res[0].Pass == 0 {
 		t.Errorf("baseline: %+v", res[0])
 	}
+	if res[0].Output != "" {
+		t.Errorf("baseline all-pass should not retain output (%d bytes)", len(res[0].Output))
+	}
 	if res[1].Version != "8.21.3" || res[1].Fail == 0 {
 		t.Errorf("latest expected at least one fail: %+v", res[1])
+	}
+	if res[1].Output == "" {
+		t.Error("latest with failures should retain runner output for validate")
 	}
 }
