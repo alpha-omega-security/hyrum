@@ -67,6 +67,14 @@ func cmdCorpus(ctx context.Context, args []string) error {
 			fmt.Fprintf(os.Stderr, "  clone: %v\n", err)
 			continue
 		}
+		// corpus owns this clone (unlike gen's symlinked target), so agent
+		// directive files can be removed before the skill run reads it.
+		if n, err := harness.StripDirectives(dir); err != nil {
+			fmt.Fprintf(os.Stderr, "  strip: %v\n", err)
+			continue
+		} else if n > 0 {
+			fmt.Fprintf(os.Stderr, "  stripped %d agent directive path(s)\n", n)
+		}
 		t, err := hyrum.Analyze(dir)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "  analyze: %v\n", err)

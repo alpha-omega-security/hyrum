@@ -341,7 +341,7 @@ func stageContext(ctx context.Context, t *hyrum.Target, d hyrum.Dep, ws string, 
 	}
 	// The dep clone is ours to modify; remove any CLAUDE.md/AGENTS.md/.claude
 	// so the cloned repository cannot inject instructions into the skill run.
-	if _, err := hyrum.StripAgentDirectives(depDir); err != nil {
+	if _, err := harness.StripDirectives(depDir); err != nil {
 		return depDir, latest, fmt.Errorf("strip %s: %w", depDir, err)
 	}
 	res, err := outline.Pack(depDir, outline.Options{Compress: true})

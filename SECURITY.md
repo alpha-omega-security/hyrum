@@ -16,10 +16,10 @@ registry and OSV. All three can contain text crafted to influence the LLM.
 ### What is protected
 
 Generated file paths from the LLM are rejected if absolute, empty, or
-containing `..` (`internal/hyrum/run.go:WriteFiles`). The dependency clone is
-stripped of files that agent CLIs auto-load as instructions (`CLAUDE.md`,
-`AGENTS.md`, `.claude/`, `.cursor/`, and similar;
-`internal/hyrum/strip.go:StripAgentDirectives`) before any skill reads it. A
+containing `..` (`internal/hyrum/run.go:WriteFiles`). The dependency clone,
+and each dependent clone in `corpus`, is stripped of files that agent CLIs
+auto-load as instructions (`CLAUDE.md`, `AGENTS.md`, `.claude/`, `.cursor/`,
+and similar; `harness.StripDirectives`) before any skill reads it. A
 workspace-level project-instructions file states that the run is
 non-interactive so a global user rule of "stop and ask on error" does not
 leave the process waiting on absent input. `git` and package-manager
@@ -30,8 +30,7 @@ interpolated into a shell string.
 
 `gen` symlinks the target repository into the workspace rather than copying
 it, so agent-directive files in the target are not stripped (stripping would
-modify the user's checkout). `corpus` clones targets into its own working
-directory and could strip them but currently does not. Registry metadata
+modify the user's checkout). Registry metadata
 (homepage, description, repository URL) is written into `context.json` for the
 skill to read; a package with adversarial metadata could place instruction-like
 text there. The statement in each `SKILL.md` that workspace content is data

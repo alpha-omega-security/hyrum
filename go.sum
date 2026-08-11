@@ -1,8 +1,8 @@
 github.com/BurntSushi/toml v1.6.0 h1:dRaEfpa2VI55EwlIW72hMRHdWouJeRF7TPYhI+AUQjk=
 github.com/BurntSushi/toml v1.6.0/go.mod h1:ukJfTF/6rtPPRCnwkur4qwRxa8vTRFBF0uk2lLoLwho=
 github.com/RaveNoX/go-jsoncommentstrip v1.0.0/go.mod h1:78ihd09MekBnJnxpICcwzCMzGrKSKYe4AqU6PDYYpjk=
-github.com/alpha-omega-security/harness v0.1.4 h1:b7xmJ3ox6rhrIkuDJjPQMPEsoKcHbbSkxX6WRQfteS0=
-github.com/alpha-omega-security/harness v0.1.4/go.mod h1:/nym/38ro7lLq4jVmQhYqblV+0uMo3YpeueqaXNMpOs=
+github.com/alpha-omega-security/harness v0.1.5 h1:fXSVixjU3p+VzeYklD2gb0mI9PJQO4LBOKWk0/ly5Xw=
+github.com/alpha-omega-security/harness v0.1.5/go.mod h1:/nym/38ro7lLq4jVmQhYqblV+0uMo3YpeueqaXNMpOs=
 github.com/apapsch/go-jsonmerge/v2 v2.0.0 h1:axGnT1gRIfimI7gJifB699GoE/oq+F2MU7Dml6nw9rQ=
 github.com/apapsch/go-jsonmerge/v2 v2.0.0/go.mod h1:lvDnEdqiQrp0O42VQGgmlKpxL1AP2+08jFMw88y4klk=
 github.com/bazelbuild/buildtools v0.0.0-20260716142318-04cf7de1434f h1:2mT6QcXmMFtvg7bezs1Fef7nnpJyeCmfWoWNjwtvNZ4=

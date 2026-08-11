@@ -3,7 +3,7 @@ module github.com/alpha-omega-security/hyrum
 go 1.26
 
 require (
-	github.com/alpha-omega-security/harness v0.1.4
+	github.com/alpha-omega-security/harness v0.1.5
 	github.com/git-pkgs/brief v0.9.4
 	github.com/git-pkgs/changelog v0.2.0
 	github.com/git-pkgs/clone v0.2.1
