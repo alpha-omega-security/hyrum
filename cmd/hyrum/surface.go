@@ -10,12 +10,13 @@ import (
 
 	"github.com/alpha-omega-security/hyrum/internal/hyrum"
 	"github.com/alpha-omega-security/hyrum/internal/hyrum/usage"
+	"github.com/git-pkgs/purl"
 )
 
 // cmdSurface prints the usage surface of the target's dependencies. With no
 // --dep it prints a summary row per direct dependency; with --dep it prints
 // the full symbol/site list for that dependency.
-func cmdSurface(_ context.Context, args []string) error {
+func cmdSurface(ctx context.Context, args []string) error {
 	fs := newFlags("surface")
 	var deps stringList
 	fs.Var(&deps, "dep", "dependency name to detail (repeatable); default: summarise all direct deps")
@@ -35,12 +36,12 @@ func cmdSurface(_ context.Context, args []string) error {
 	}
 
 	if len(deps) == 0 {
-		return surfaceSummary(t, *directOnly, *asJSON)
+		return surfaceSummary(ctx, t, *directOnly, *asJSON)
 	}
-	return surfaceDetail(t, deps, *asJSON)
+	return surfaceDetail(ctx, t, deps, *asJSON)
 }
 
-func surfaceSummary(t *hyrum.Target, directOnly, asJSON bool) error {
+func surfaceSummary(ctx context.Context, t *hyrum.Target, directOnly, asJSON bool) error {
 	type row struct {
 		Name      string `json:"name"`
 		Ecosystem string `json:"ecosystem"`
@@ -56,7 +57,7 @@ func surfaceSummary(t *hyrum.Target, directOnly, asJSON bool) error {
 			continue
 		}
 		r := row{Name: d.Name, Ecosystem: d.Ecosystem, Version: d.Version, Scope: d.Scope}
-		if s, err := usage.Index(d.Ecosystem, t.Path, d.Name); err == nil {
+		if s, err := usage.Index(ctx, t.Path, d.PURL); err == nil {
 			r.Symbols = s.UsedCount()
 			for _, sym := range s.Symbols {
 				r.Sites += len(sym.Sites)
@@ -82,18 +83,17 @@ func surfaceSummary(t *hyrum.Target, directOnly, asJSON bool) error {
 	return tw.Flush()
 }
 
-func surfaceDetail(t *hyrum.Target, names []string, asJSON bool) error {
+func surfaceDetail(ctx context.Context, t *hyrum.Target, names []string, asJSON bool) error {
 	var out []*usage.Surface
 	for _, name := range names {
 		d, ok := findDep(t, name)
 		if !ok {
 			return fmt.Errorf("dependency %q not found in %s (ecosystems: %v)", name, t.Path, t.Ecosystems())
 		}
-		s, err := usage.Index(d.Ecosystem, t.Path, d.Name)
+		s, err := usage.Index(ctx, t.Path, d.PURL)
 		if err != nil {
 			return err
 		}
-		s.PURL = d.PURL
 		out = append(out, s)
 	}
 	if asJSON {
@@ -124,8 +124,11 @@ func findDep(t *hyrum.Target, name string) (hyrum.Dep, bool) {
 	// werkzeug via Flask) is exactly the Hyrum's Law case, so allow --dep to
 	// name any package and try each detected ecosystem's indexer.
 	for _, eco := range t.Ecosystems() {
-		if _, err := usage.For(eco); err == nil {
-			return hyrum.Dep{Name: name, Ecosystem: eco, Direct: false}, true
+		if usage.Supported(eco) {
+			return hyrum.Dep{
+				Name: name, Ecosystem: eco, Direct: false,
+				PURL: purl.New(eco, "", name, "", nil).String(),
+			}, true
 		}
 	}
 	return hyrum.Dep{}, false

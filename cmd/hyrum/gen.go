@@ -306,11 +306,10 @@ func stageContext(ctx context.Context, t *hyrum.Target, d hyrum.Dep, ws string, 
 	}
 
 	// Usage surface (works even without the dep clone).
-	surf, err := usage.Index(d.Ecosystem, t.Path, d.Name)
+	surf, err := usage.Index(ctx, t.Path, d.PURL)
 	if err != nil {
 		return "", "", fmt.Errorf("usage: %w", err)
 	}
-	surf.PURL = d.PURL
 	if err := writeJSON(filepath.Join(ws, "usage.json"), surf); err != nil {
 		return "", "", err
 	}

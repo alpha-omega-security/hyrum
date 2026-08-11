@@ -12,106 +12,53 @@ import (
 	"github.com/git-pkgs/provides"
 )
 
-// spec configures the tree-sitter indexer for one ecosystem. exts limits the
-// file walk; names returns the source-visible module names that dep provides
-// (git-pkgs/provides ProvidedName so its Matches method handles subpath and
-// submodule boundaries); seed returns receiver identifiers to trace even when
-// no import line is present, which covers Ruby's Bundler-autoloaded constants
-// and Go's implicit package name for an unaliased import.
+// spec configures the file walk and receiver seeding for one ecosystem.
+// The mapping from a package identity to the source names it provides is
+// supplied by git-pkgs/provides; spec covers only what provides cannot,
+// which is source-language behaviour rather than package identity.
 type spec struct {
-	exts  []string
-	names func(dep string) []provides.ProvidedName
-	seed  func(dep, module string) string
+	// exts limits the walk to these file extensions. outline dispatches
+	// on filename, so this only avoids reading irrelevant files.
+	exts []string
+	// seedProvided adds each resolved ProvidedName.Name as an
+	// unconditional receiver for outline.Refs. Set for languages where a
+	// dependency's top-level name can be referenced without an import
+	// line: Ruby's Bundler-autoloaded constant, Rust's crate identifier,
+	// PHP's PSR-4 root, Elixir's aliased module.
+	seedProvided bool
+	// moduleAlias derives a receiver from an unaliased module import
+	// where the language convention is not the module path itself. Go's
+	// `import "github.com/x/y"` binds `y`, not the full path.
+	moduleAlias func(module string) string
 }
 
-// specs holds the per-ecosystem heuristic name mappings. The mappings encode
-// each ecosystem's dep-name → source-name convention; git-pkgs/provides is
-// the authority for exact mappings and these heuristics defer to it once a
-// resolver exists for the ecosystem.
 var specs = map[string]spec{
 	"npm": {
 		exts: []string{".js", ".mjs", ".cjs", ".ts", ".mts", ".cts", ".jsx", ".tsx"},
-		names: func(dep string) []provides.ProvidedName {
-			return []provides.ProvidedName{
-				{Language: "javascript", Name: dep, Match: provides.MatchPrefix, Separator: "/"},
-			}
-		},
 	},
 	"pypi": {
 		exts: []string{".py"},
-		names: func(dep string) []provides.ProvidedName {
-			// PyPI distribution names are case-insensitive and treat -/_/.
-			// as equivalent (PEP 503); module names are case-sensitive and
-			// conventionally lowercase with underscores. Distributions
-			// whose module name differs beyond that convention (PyYAML →
-			// yaml, Pillow → PIL) need curated data.
-			return []provides.ProvidedName{
-				{Language: "python", Name: strings.ToLower(underscore(dep)), Match: provides.MatchPrefix, Separator: "."},
-			}
-		},
 	},
 	"golang": {
-		exts: []string{".go"},
-		names: func(dep string) []provides.ProvidedName {
-			return []provides.ProvidedName{
-				{Language: "go", Name: dep, Match: provides.MatchPrefix, Separator: "/"},
-			}
-		},
-		// An unaliased Go import binds the last path segment as the package
-		// identifier. outline reports no Name for that form, so seed it here.
-		seed: func(_, module string) string { return gopath.Base(module) },
+		exts:        []string{".go"},
+		moduleAlias: gopath.Base,
 	},
 	"gem": {
-		exts: []string{".rb", ".rake", ".gemspec"},
-		names: func(dep string) []provides.ProvidedName {
-			return []provides.ProvidedName{
-				{Language: "ruby", Name: dep, Match: provides.MatchPrefix, Separator: "/"},
-			}
-		},
-		// Rails apps typically have no require line because Bundler.require
-		// autoloads every Gemfile entry, so the camelised constant is the
-		// only source-level signal.
-		seed: func(dep, _ string) string { return camelize(dep) },
+		exts:         []string{".rb", ".rake", ".gemspec"},
+		seedProvided: true,
 	},
 	"cargo": {
-		exts: []string{".rs"},
-		names: func(dep string) []provides.ProvidedName {
-			return []provides.ProvidedName{
-				{Language: "rust", Name: underscore(dep), Match: provides.MatchPrefix, Separator: "::"},
-			}
-		},
-		seed: func(dep, _ string) string { return underscore(dep) },
+		exts:         []string{".rs"},
+		seedProvided: true,
 	},
 	"composer": {
-		exts: []string{".php"},
-		names: func(dep string) []provides.ProvidedName {
-			// Composer package names are vendor/package; PSR-4 namespaces
-			// conventionally start with the titlecased vendor. PHP
-			// namespace resolution is case-insensitive at the language
-			// level, so the guess matches after case folding; the exact
-			// autoload map is a git-pkgs/provides concern.
-			return []provides.ProvidedName{{
-				Language: "php", Name: phpVendor(dep),
-				Match: provides.MatchPrefix, Separator: `\`, CaseInsensitive: true,
-			}}
-		},
-		seed: func(dep, _ string) string { return phpVendor(dep) },
+		exts:         []string{".php"},
+		seedProvided: true,
 	},
 	"hex": {
-		exts: []string{".ex", ".exs"},
-		names: func(dep string) []provides.ProvidedName {
-			return []provides.ProvidedName{
-				{Language: "elixir", Name: camelize(dep), Match: provides.MatchPrefix, Separator: "."},
-			}
-		},
-		seed: func(dep, _ string) string { return camelize(dep) },
+		exts:         []string{".ex", ".exs"},
+		seedProvided: true,
 	},
-}
-
-func init() {
-	for eco, s := range specs {
-		Register(eco, treeIndexer{spec: s})
-	}
 }
 
 // skipDirs are directories whose contents are never source authored by the
@@ -135,18 +82,13 @@ var skipDirs = map[string]bool{
 	"log":          true,
 }
 
-// treeIndexer walks the target's source files, extracts imports via
-// outline.Imports, keeps those whose module matches one of the dep's
-// provided names, records their bound identifiers as receivers, then calls
-// outline.Refs to collect direct member accesses on those receivers.
-type treeIndexer struct {
-	spec spec
-}
-
-func (ix treeIndexer) Index(root, dep string) (*Surface, error) {
-	provided := ix.spec.names(dep)
-	exts := set(ix.spec.exts...)
-	c := newCollector(dep)
+// scan walks root, extracts imports via outline.Imports, keeps those whose
+// module matches one of the dep's provided names, records their bound
+// identifiers as receivers, then calls outline.Refs to collect direct member
+// accesses on those receivers.
+func scan(root string, sp spec, provided []provides.ProvidedName) (*Surface, error) {
+	exts := set(sp.exts...)
+	c := newCollector()
 
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
@@ -163,7 +105,7 @@ func (ix treeIndexer) Index(root, dep string) (*Surface, error) {
 			return nil
 		}
 		rel, _ := filepath.Rel(root, path)
-		ix.scanFile(c, src, rel, provided)
+		scanFile(c, sp, src, rel, provided)
 		return nil
 	})
 	return c.surface(), err
@@ -172,7 +114,7 @@ func (ix treeIndexer) Index(root, dep string) (*Surface, error) {
 // scanFile records symbols from one file into c. It first extracts import
 // statements and keeps those whose module string matches a provided name,
 // then traces member accesses on the local identifiers those imports bind.
-func (ix treeIndexer) scanFile(c *collector, src []byte, rel string, provided []provides.ProvidedName) {
+func scanFile(c *collector, sp spec, src []byte, rel string, provided []provides.ProvidedName) {
 	imports, ok := outline.Imports(src, rel)
 	if !ok {
 		return
@@ -183,9 +125,11 @@ func (ix treeIndexer) scanFile(c *collector, src []byte, rel string, provided []
 	// accesses on it should be recorded under, so `request as rq` followed
 	// by `rq.args` is recorded as `request.args`.
 	receivers := map[string]string{}
-	if ix.spec.seed != nil {
-		if r := ix.spec.seed(c.dep, ""); r != "" {
-			receivers[r] = r
+	if sp.seedProvided {
+		for _, n := range provided {
+			if isIdentifier(n.Name) {
+				receivers[n.Name] = n.Name
+			}
 		}
 	}
 
@@ -193,7 +137,7 @@ func (ix treeIndexer) scanFile(c *collector, src []byte, rel string, provided []
 		if !matchesAny(provided, imp.Module) {
 			continue
 		}
-		ix.recordImport(c, imp, rel, lineAt(lines, imp.Line), receivers)
+		recordImport(c, sp, imp, rel, lineAt(lines, imp.Line), receivers)
 	}
 	if len(receivers) == 0 {
 		return
@@ -208,7 +152,7 @@ func (ix treeIndexer) scanFile(c *collector, src []byte, rel string, provided []
 
 // recordImport records the symbols one matching import statement introduces
 // and adds the local identifiers it binds to receivers.
-func (ix treeIndexer) recordImport(c *collector, imp outline.Import, rel, ctx string, receivers map[string]string) {
+func recordImport(c *collector, sp spec, imp outline.Import, rel, ctx string, receivers map[string]string) {
 	switch imp.Kind {
 	case outline.ImportNamed:
 		for _, n := range imp.Names {
@@ -226,15 +170,15 @@ func (ix treeIndexer) recordImport(c *collector, imp outline.Import, rel, ctx st
 		// for the whole module. Record the module path as the consumed
 		// symbol and map the local identifier to it so member refs record
 		// as module.member regardless of the target's chosen alias. When
-		// outline reports no alias, seed derives one from the module path
-		// where the ecosystem defines a convention.
+		// outline reports no alias, moduleAlias derives one where the
+		// ecosystem defines a convention.
 		c.add(imp.Module, string(imp.Kind), rel, imp.Line, ctx)
 		alias := ""
 		if len(imp.Names) > 0 {
 			alias = imp.Names[0].Alias
 		}
-		if alias == "" && ix.spec.seed != nil {
-			alias = ix.spec.seed(c.dep, imp.Module)
+		if alias == "" && sp.moduleAlias != nil {
+			alias = sp.moduleAlias(imp.Module)
 		}
 		if alias != "" {
 			receivers[alias] = imp.Module
@@ -245,7 +189,6 @@ func (ix treeIndexer) recordImport(c *collector, imp outline.Import, rel, ctx st
 // collector accumulates symbols across files, keyed by symbol name so
 // multiple sites merge. Insertion order is retained for stable output.
 type collector struct {
-	dep   string
 	syms  map[string]*Symbol
 	order []string
 }
@@ -255,8 +198,8 @@ const (
 	kindMember = "member"
 )
 
-func newCollector(dep string) *collector {
-	return &collector{dep: dep, syms: map[string]*Symbol{}}
+func newCollector() *collector {
+	return &collector{syms: map[string]*Symbol{}}
 }
 
 func (c *collector) add(name, kind, file string, line int, ctx string) {
@@ -273,7 +216,7 @@ func (c *collector) add(name, kind, file string, line int, ctx string) {
 }
 
 func (c *collector) surface() *Surface {
-	surf := &Surface{Dep: c.dep, Symbols: make([]Symbol, 0, len(c.order))}
+	surf := &Surface{Symbols: make([]Symbol, 0, len(c.order))}
 	for _, name := range c.order {
 		surf.Symbols = append(surf.Symbols, *c.syms[name])
 	}
@@ -318,39 +261,18 @@ func set(items ...string) map[string]bool {
 	return m
 }
 
-// underscore replaces hyphens with underscores, which is how PyPI
-// distribution names and Cargo package names map onto importable module and
-// crate identifiers by default.
-func underscore(s string) string { return strings.ReplaceAll(s, "-", "_") }
-
-// camelize turns a hyphen/underscore-separated package name into its
-// conventional constant form: octokit → Octokit, active_support →
-// ActiveSupport, faraday-retry → FaradayRetry.
-func camelize(s string) string {
-	var b strings.Builder
-	up := true
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c == '_' || c == '-' {
-			up = true
-			continue
-		}
-		if up && 'a' <= c && c <= 'z' {
-			c -= 'a' - 'A'
-		}
-		up = false
-		b.WriteByte(c)
+// isIdentifier reports whether s is a single identifier suitable as a
+// receiver name (no path separators, dots, or backslashes). This filters
+// ProvidedName entries like a Go module path or an npm subpath from being
+// seeded as receivers.
+func isIdentifier(s string) bool {
+	if s == "" {
+		return false
 	}
-	return b.String()
-}
-
-// phpVendor derives the top-level PSR-4 namespace segment from a composer
-// package name. guzzlehttp/guzzle → Guzzlehttp. The exact autoload map lives
-// in the package's composer.json and is a git-pkgs/provides concern.
-func phpVendor(dep string) string {
-	vendor := dep
-	if i := strings.IndexByte(dep, '/'); i > 0 {
-		vendor = dep[:i]
+	for _, r := range s {
+		if r == '/' || r == '.' || r == '\\' || r == ':' {
+			return false
+		}
 	}
-	return camelize(vendor)
+	return true
 }

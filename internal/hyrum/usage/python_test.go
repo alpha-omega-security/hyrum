@@ -9,7 +9,7 @@ func TestPyFromImport(t *testing.T) {
 			"rq.args.get('x')\n" +
 			"jsonify({'a': 1})\n",
 	})
-	s, err := Index("pypi", root, "flask")
+	s, err := Index(t.Context(), root, "pkg:pypi/flask")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,7 +28,7 @@ func TestPyModuleImport(t *testing.T) {
 			"flask.jsonify(x)\n" +
 			"fjson.dumps(x)\n",
 	})
-	s, err := Index("pypi", root, "flask")
+	s, err := Index(t.Context(), root, "pkg:pypi/flask")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +50,7 @@ func TestPyNoPrefixLeak(t *testing.T) {
 			"unflask.something()\n" + // 'flask' inside a longer identifier
 			"'flask.string_literal'\n", // and inside a string literal
 	})
-	s, err := Index("pypi", root, "flask")
+	s, err := Index(t.Context(), root, "pkg:pypi/flask")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func TestPyMultilineFromImport(t *testing.T) {
 			")\n" +
 			"flask_jsonify({})\n",
 	})
-	s, err := Index("pypi", root, "flask")
+	s, err := Index(t.Context(), root, "pkg:pypi/flask")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func TestPyHyphenUnderscore(t *testing.T) {
 	root := writeTree(t, map[string]string{
 		"a.py": "from engine_io_parser import decode\n",
 	})
-	s, err := Index("pypi", root, "engine-io-parser")
+	s, err := Index(t.Context(), root, "pkg:pypi/engine-io-parser")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,11 +108,28 @@ func TestPyDistributionCase(t *testing.T) {
 	root := writeTree(t, map[string]string{
 		"a.py": "from flask import jsonify\n",
 	})
-	s, err := Index("pypi", root, "Flask")
+	s, err := Index(t.Context(), root, "pkg:pypi/Flask")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if symbolNames(s)["jsonify"] == 0 {
 		t.Errorf("case-insensitive distribution match failed: %v", symbolNames(s))
+	}
+}
+
+func TestPyCuratedChainedBeforeHeuristic(t *testing.T) {
+	// PyYAML installs module `yaml`; the heuristic alone would guess
+	// `pyyaml`. curated.Python() supplies the correct mapping and Chain
+	// merges both, so `import yaml` matches.
+	root := writeTree(t, map[string]string{
+		"a.py": "import yaml\nyaml.safe_load(f)\n",
+	})
+	s, err := Index(t.Context(), root, "pkg:pypi/PyYAML@6.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := symbolNames(s)
+	if got["yaml"] == 0 || got["yaml.safe_load"] == 0 {
+		t.Errorf("curated PyYAML→yaml mapping not applied: %v", got)
 	}
 }

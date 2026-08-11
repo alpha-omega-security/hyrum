@@ -12,7 +12,7 @@ func TestGoIndex(t *testing.T) {
 			")\n" +
 			"func f() { sse.Encode(w, sse.Event{}); s2.Handler() }\n",
 	})
-	s, err := Index("golang", root, "github.com/gin-contrib/sse")
+	s, err := Index(t.Context(), root, "pkg:golang/github.com/gin-contrib/sse")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +40,7 @@ func TestGemIndex(t *testing.T) {
 			"Octokit.configure { |c| c.api = api }\n" +
 			"MyOctokit::Client.new\n",
 	})
-	s, err := Index("gem", root, "octokit")
+	s, err := Index(t.Context(), root, "pkg:gem/octokit")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +60,7 @@ func TestGemCamelize(t *testing.T) {
 	root := writeTree(t, map[string]string{
 		"a.rb": "ActiveSupport::Duration.parse(s)\n",
 	})
-	s, err := Index("gem", root, "active_support")
+	s, err := Index(t.Context(), root, "pkg:gem/active_support")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +75,7 @@ func TestCargoIndex(t *testing.T) {
 			"use serde_json::Value;\n" + // must not match "serde"
 			"fn f() -> Ser { serde::to_string(&x) }\n",
 	})
-	s, err := Index("cargo", root, "serde")
+	s, err := Index(t.Context(), root, "pkg:cargo/serde")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +97,7 @@ func TestCargoHyphenUnderscore(t *testing.T) {
 	root := writeTree(t, map[string]string{
 		"src/lib.rs": "use tokio_util::codec::Framed;\n",
 	})
-	s, err := Index("cargo", root, "tokio-util")
+	s, err := Index(t.Context(), root, "pkg:cargo/tokio-util")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestComposerIndex(t *testing.T) {
 			"use App\\Models\\User;\n" +
 			"$c = new Client();\n",
 	})
-	s, err := Index("composer", root, "guzzlehttp/guzzle")
+	s, err := Index(t.Context(), root, "pkg:composer/guzzlehttp/guzzle")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +133,7 @@ func TestHexIndex(t *testing.T) {
 			"  def f(x), do: Jason.encode!(x)\n" +
 			"end\n",
 	})
-	s, err := Index("hex", root, "jason")
+	s, err := Index(t.Context(), root, "pkg:hex/jason")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +150,7 @@ func TestSiteContext(t *testing.T) {
 	root := writeTree(t, map[string]string{
 		"a.py": "  from flask import jsonify   # trailing\n",
 	})
-	s, err := Index("pypi", root, "flask")
+	s, err := Index(t.Context(), root, "pkg:pypi/flask")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -146,21 +146,23 @@ maps a dependency name to the target files referencing it:
 |---|---|---|
 | npm | JavaScript, TypeScript | `require()`, `import`, chained `.member` |
 | pypi | Python | `import`, `from ... import`, attribute access |
-| golang | Go | `import "module/path"` |
-| gem | Ruby | `require 'gem'`, `GemName::` constant refs |
-| cargo | Rust | `use crate::` |
-| composer | PHP | `use Vendor\...` (PSR-4 heuristic) |
-| hex | Elixir | `alias`/`import`/`use Module` |
+| golang | Go | `import "module/path"`, package selectors and qualified types |
+| gem | Ruby | `require 'gem'`, `GemName::` and `GemName.x` refs |
+| cargo | Rust | `use crate::`, `crate::path` refs |
+| composer | PHP | `use Vendor\...`, `Vendor\X` refs (case-folded) |
+| hex | Elixir | `alias`/`import`/`use Module`, `Module.x` refs |
 
-Adding another ecosystem is a `Register` call in
-`internal/hyrum/usage/generic.go` with an extension set and a match function
-against the lines outline preserves. The match functions are heuristic where a
-package name differs from the importable name (composer PSR-4 namespaces,
-Rails autoload, PyYAML installing as `yaml`); the exact mapping is the domain
-of [git-pkgs/provides](https://github.com/git-pkgs/provides), and outline's
-structured `Imports()` API
-([outline#27](https://github.com/git-pkgs/outline/issues/27)) removes the text
-scan.
+Import statements and receiver.member references are extracted per file by
+[git-pkgs/outline](https://github.com/git-pkgs/outline)'s tree-sitter-backed
+`Imports` and `Refs`. Mapping a package identity to the module or namespace
+names it provides in source is
+[git-pkgs/provides](https://github.com/git-pkgs/provides)'s job: a curated
+Python catalog handles distributions whose module name is unrelated to the
+registry name (PyYAML → `yaml`, Pillow → `PIL`), and a naming-convention
+resolver covers the rest. Adding an ecosystem here is one entry in
+`internal/hyrum/usage/index.go`'s `specs` map (file extensions and whether the
+language allows referencing a dependency's top-level name without an import
+line) plus a convention in `provides/heuristic`.
 
 ## License
 

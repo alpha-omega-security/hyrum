@@ -35,7 +35,7 @@ func TestJSRequireCJS(t *testing.T) {
 			"const wss = new WebSocket.Server({ port: 0 });\n" +
 			"WebSocket.Server.prototype.shouldHandle;\n",
 	})
-	s, err := Index("npm", root, "ws")
+	s, err := Index(t.Context(), root, "pkg:npm/ws")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func TestJSImportNamed(t *testing.T) {
 			"new Server();\n" +
 			"WS.OPEN;\n",
 	})
-	s, err := Index("npm", root, "ws")
+	s, err := Index(t.Context(), root, "pkg:npm/ws")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +81,7 @@ func TestJSImportDefaultAndNamespace(t *testing.T) {
 			"WS.Server;\n",
 		"node_modules/x/index.js": "require('ws');\n", // must be skipped
 	})
-	s, err := Index("npm", root, "ws")
+	s, err := Index(t.Context(), root, "pkg:npm/ws")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +103,7 @@ func TestJSRequireChainedMember(t *testing.T) {
 		"a.js": "const DEFAULT_WS_ENGINE = require(\"ws\").Server;\n" +
 			"new DEFAULT_WS_ENGINE({ noServer: true });\n",
 	})
-	s, err := Index("npm", root, "ws")
+	s, err := Index(t.Context(), root, "pkg:npm/ws")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +121,7 @@ func TestJSSubpathMatch(t *testing.T) {
 		"a.js": "const Sender = require('ws/lib/sender');\n",
 		"b.js": "const other = require('wss');\n", // must not match
 	})
-	s, err := Index("npm", root, "ws")
+	s, err := Index(t.Context(), root, "pkg:npm/ws")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func TestJSSubpathMatch(t *testing.T) {
 }
 
 func TestUnsupportedEcosystem(t *testing.T) {
-	if _, err := Index("cobol", ".", "x"); err == nil {
+	if _, err := Index(t.Context(), ".", "pkg:cobol/x"); err == nil {
 		t.Fatal("expected error for unregistered ecosystem")
 	}
 }
