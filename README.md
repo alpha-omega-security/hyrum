@@ -1,64 +1,121 @@
 # hyrum
 
-hyrum turns the [hyrums-tests](https://github.com/michaelwinser/hyrums-tests)
-proof of concept into a pipeline you can point at any repository. Given a
-target and a dependency, it extracts how the target's code calls that
-dependency, collects the target's git commits and the dependency's changelog
-and advisories for past compatibility fixes, and emits hermetic tests that pin
-the observed behaviour so the suite passes on the dependency version the
-target was built against and fails when a later version changes something the
-target relies on.
+hyrum generates tests that pin how your code actually calls its dependencies,
+so a version bump that changes something you rely on fails a test that names
+the behaviour instead of surfacing three layers deep in your own suite.
 
-Running the pipeline on engine.io against `ws` produces seven tests using
-`node:test` and an in-memory Duplex stream (no ports, no timing), for $1.27
-across the three model-driven steps. Against ws 7.4.2, engine.io's baseline,
-all seven pass; against ws 8.21.3 one fails, `delivers text message payloads
-as strings`, because ws 8 changed the message-event payload from `string` to
-`Buffer`. The failing test's source comment cites engine.io commit `64d5754`,
-where that fix was applied by a maintainer.
+[Hyrum's Law](https://www.hyrumslaw.com): with enough users, every observable
+behaviour of your system will be depended on by somebody, whether you
+documented it or not. A library's own tests cover the contract its maintainers
+intend; hyrum generates the tests for the contract you accidentally have.
 
-The static extraction step alone, with no model calls, reproduces the original
-httpbin/Flask hand analysis: `hyrum surface --dep Flask ./httpbin` finds all
-nine named imports and all ten `request` properties the proof of concept
-documented, plus three the manual pass missed. The full pipeline on the same
-target produces 73 tests for $2.47, none of which use `hasattr`- or
-`is None`-only assertions (23% of the proof of concept's 299 do), and one of
-which pins the exact `Set-Cookie` header from `response.delete_cookie()`. That
-test fails on Werkzeug 2.3+ because the expiry-date format changed from
-`01-Jan-1970` to `01 Jan 1970`; the proof of concept's `delete_cookie` test
-asserts only a substring and passes on both.
+The approach and the httpbin/Flask baseline below come from Michael Winser's
+[hyrums-tests](https://github.com/michaelwinser/hyrums-tests) proof of
+concept, which built the six-phase methodology (setup, static analysis,
+runtime tracing, history mining, generation, validation) by hand for one
+project. This
+tool turns those phases into a pipeline that runs against any repository in
+seven package-manager ecosystems, built on the
+[git-pkgs](https://github.com/git-pkgs) libraries so per-ecosystem work stays
+upstream.
+
+## Example
+
+[engine.io](https://github.com/socketio/engine.io) depends on
+[`ws`](https://www.npmjs.com/package/ws) for its WebSocket transport. `hyrum
+gen --dep ws --run --verify ./engine.io` extracts the one static entry point
+(`const DEFAULT_WS_ENGINE = require("ws").Server`), traces it through the
+instance to
+fifteen method calls (`handleUpgrade`, `shouldHandle`, `close`, the
+per-message-deflate options, ...), mines engine.io's git history and the ws
+changelog for past compatibility fixes, and writes seven hermetic tests using
+`node:test` and an in-memory Duplex stream, for $1.27 across the three model
+steps.
+
+Against ws 7.4.2, engine.io's pinned version, all seven pass. Against ws
+8.21.3 one fails: `delivers text message payloads as strings`, because ws 8
+changed the message-event payload from `string` to `Buffer`. The test's source
+comment cites engine.io commit `64d5754`, where a maintainer applied exactly
+that fix when the upgrade landed.
+
+On the original proof of concept's target,
+[httpbin](https://github.com/postmanlabs/httpbin), the static step alone
+reproduces the hand analysis: `hyrum surface --dep flask ./httpbin` (no model
+calls) finds all nine named [Flask](https://pypi.org/project/Flask/) imports
+and fourteen `request` attributes across 63 call sites. The full pipeline on
+the same target produces 73 tests for $2.47, none of
+which use `hasattr`- or `is None`-only assertions (23% of the PoC's 299 do),
+and one of which pins the exact `Set-Cookie` header from
+`response.delete_cookie()`. That test fails on
+[Werkzeug](https://pypi.org/project/Werkzeug/) 2.3+ because the expiry-date
+format changed from `01-Jan-1970` to `01 Jan 1970`; the PoC's
+`delete_cookie` test asserts a substring and passes on both.
+
+## Use cases
+
+Output lands in `tests/hyrum/<dependency>/from_<target>/` so the same suite
+serves both the consumer and the dependency's maintainer. Worked examples with
+real command output are in [docs/](docs/).
+
+**Consumer CI** ([docs/consumer-ci.md](docs/consumer-ci.md)). Run
+`tests/hyrum/<dep>/` on the [dependabot](https://docs.github.com/en/code-security/dependabot)
+or [renovate](https://docs.renovatebot.com) PR that bumps `<dep>`; a
+failure names the specific behaviour the new version changed, which is
+usually clearer than the same break surfacing through an unrelated
+integration test.
+
+**Producer corpus** ([docs/producer-corpus.md](docs/producer-corpus.md)).
+`hyrum corpus --upstream pkg:npm/ws --discover 20` clones the top dependents
+by download count, generates each one's `from_<dependent>/` suite, and
+aggregates them so a `ws` maintainer can run every consumer's contract tests
+before tagging a release. Rust's
+[crater](https://github.com/rust-lang/crater) and Google's TAP do this at
+whole-ecosystem scale by building and running every dependent; a hermetic
+per-consumer suite gets most of the signal in seconds per dependent.
+
+**Pinned-dependency diagnosis** ([docs/logjam.md](docs/logjam.md)). When a
+dependency is held back by an upper-bound pin and the reason has been lost,
+`hyrum check --dep X@<blocked-version>` runs the generated suite against the
+blocked version and prints which assertions fail, giving the pin a concrete
+justification again.
+
+**CVE reachability and vendoring**
+([docs/reachability.md](docs/reachability.md)). `hyrum surface --json` alone,
+no model calls, gives a per-dependency used-symbol count and site list.
+Intersecting used symbols with a CVE's affected functions turns a noisy
+advisory into a reachable/unreachable call, and a dependency where the target
+uses two of two hundred exported symbols is a vendoring candidate.
 
 ## Rationale
 
 Testing your dependencies used to be bad advice for a cost reason: writing and
 maintaining hundreds of tests against someone else's API took more
-engineer-hours than the breakage it prevented. LLM generation and regeneration
-turn that into a token spend, and coupling to a dependency's behaviour is
-acceptable when regenerating the suite for a new baseline is cheap. The other
-usual arguments carry less weight here: the point of these tests is to find
-out you are broken before production does, so being unable to fix the library
-yourself is beside it, and Hyrum's Law is precisely that a library's own suite
-covers the contract its maintainers intend rather than every observable
-behaviour a caller ends up relying on.
+engineer-hours than the breakage it prevented. Generating and regenerating
+them turns that into a token spend, and coupling to a dependency's behaviour
+is fine when regenerating for a new baseline is cheap. That you cannot fix the
+library yourself is beside the point (the test tells you before production
+does), and the library having its own tests is exactly the Hyrum's Law gap.
 
 ## Install
-
-Install [Go 1.26+](https://go.dev/dl/) and:
 
 ```
 go install github.com/alpha-omega-security/hyrum/cmd/hyrum@latest
 ```
 
-`git` must be on PATH. `hyrum surface` and `hyrum check` need nothing else.
+Requires [Go 1.26+](https://go.dev/dl/) and `git` on PATH. `hyrum surface` and
+`hyrum check` need nothing else.
 
 ## Backend setup
 
-`gen --run` and `corpus --run` invoke an LLM backend via
-[harness](https://github.com/alpha-omega-security/harness). The default is
-`claude`; select another with `--backend codex|copilot|opencode`.
+`gen --run` and `corpus --run` drive one of the CLI agent tools (`claude`,
+`codex`, `copilot`, `opencode`) headlessly. The
+[alpha-omega-security/harness](https://github.com/alpha-omega-security/harness)
+library normalises their argv, streaming output, and skill staging so the
+pipeline is agnostic to which one is behind `--backend`; the default is
+`claude`.
 
-Authenticate the claude backend with either a Claude Code subscription token
-generated by the [Claude CLI](https://docs.anthropic.com/en/docs/claude-code):
+For the claude backend, either a Claude Code subscription token from the
+[CLI](https://docs.anthropic.com/en/docs/claude-code):
 
 ```
 claude setup-token
@@ -72,97 +129,98 @@ export ANTHROPIC_API_KEY=sk-ant-api03-...
 ```
 
 For codex, `export CODEX_API_KEY=sk-...`; for opencode, `OPENAI_API_KEY` or
-`ANTHROPIC_API_KEY` depending on the provider you configure it with.
+`ANTHROPIC_API_KEY` depending on which provider it is configured with.
 
 ## Host and container modes
 
-By default the backend runs directly on the host, so the CLI must be on PATH
-(`claude`, `codex`, ...) and file-based logins under `~/.claude` or `~/.codex`
-work. Passing `--container default` runs the backend inside
+By default the backend runs on the host, so its CLI (`claude`, `codex`, ...)
+must be on PATH and file-based logins under `~/.claude` or `~/.codex` work.
+`--container default` runs it inside
 `ghcr.io/alpha-omega-security/scrutineer-runner` instead: the image bundles
-all four backend CLIs plus `brief`, `git-pkgs`, and node/python/go
-toolchains, so nothing needs installing locally beyond
-[Docker](https://docs.docker.com/get-docker/) or Podman. The container has a
-fresh HOME, the target repository mounted read-only, and dropped
-capabilities, which is the recommended mode for `corpus --discover` or any
-target you did not author; see [SECURITY.md](SECURITY.md). Because HOME is
-fresh, authentication in container mode must come from one of the environment
-variables above rather than a login file. The image is pulled on first use,
-so the first `--container` run is slower while it downloads.
+all four backend CLIs plus node, python, and go toolchains, so nothing needs
+installing locally beyond Docker or Podman. The container has a fresh HOME,
+the target repository mounted read-only, and dropped capabilities, which is
+the recommended mode for `corpus --discover` or any target you did not author;
+see [SECURITY.md](SECURITY.md) and [threatmodel.md](threatmodel.md). Because
+HOME is fresh, authentication in
+container mode must come from an environment variable rather than a login
+file, and the image is pulled on first use.
 
 ## Usage
 
 ```
-hyrum surface <path>            per-dep usage summary; no model calls
-hyrum surface --dep X <path>    symbol-level detail for one dep
-hyrum gen --dep X --run <path>  generate tests for X into tests/hyrum/
+hyrum surface <path>                  per-dep usage summary; no model calls
+hyrum surface --dep X <path>          symbol-level detail for one dep
+hyrum gen --dep X --run <path>        generate tests for X into tests/hyrum/
+hyrum gen --dep X --run --verify ...  also run tests at baseline and latest
+hyrum check --dep X@<ver> <path>      run existing tests/hyrum/X against X@ver
+hyrum corpus --upstream <purl> \
+  --discover N --out <dir> --run      generate from_<dependent>/ for top N
 ```
 
-`gen` stages a workspace containing the target's static usage of the
-dependency (`usage.json`), a signature-only outline of the dependency's source
-(`dep-outline.md`), the target's git commits that mention the dependency, its
-OSV advisories, and its parsed changelog when one exists. The `hyrum-usage`
-skill then follows the import entry points through instances and options bags
-to record the actual method calls in `surface.json`; `hyrum-history` filters
-the commit log and changelog down to `breaks.json`, a list of past
-compatibility fixes with the evidence for each; `hyrum-generate` takes both
-files plus the outline and writes tests that mirror the observed calls and
-cite the source line or commit each was derived from.
-
-## Output
-
-The output layout is `tests/hyrum/<dependency>/from_<target>/` so that a
-maintainer of the dependency can collect the `from_*` directories contributed
-by many targets and run them as one suite before a release. That gives an
-open-source project something like Rust's crater run without needing to build
-every downstream: hermetic per-consumer contract tests that finish in seconds.
-The same suite in a consumer's CI catches breakage on the next dependabot PR.
-
-The per-dependency used-symbol count from `surface` ranks vendoring
-candidates, and intersecting the used-symbol set with a CVE's
-affected-function list turns a noisy advisory into a reachable/unreachable
-call. For a dependency held back by an upper-bound pin, `hyrum check --dep
-X@<blocked>` prints the specific failing behaviours instead of just a red CI.
-See [docs/](docs/) for worked examples of each of these.
+`gen` stages a workspace with the target's static usage of the dependency
+(`usage.json`), a signature-only outline of the dependency's source
+(`dep-outline.md`), the target's git commits mentioning the dependency, its
+OSV advisories, and its parsed changelog. Three model steps then run in
+sequence: `hyrum-usage` follows the static entry points through instances and
+options bags to record the actual call surface; `hyrum-history` filters the
+history inputs down to a list of past compatibility fixes with evidence for
+each; `hyrum-generate` writes tests that mirror the observed calls and cite
+the source line or commit each was derived from. With `--verify`, the
+generated tests are run in a scratch directory against the target's baseline
+version and the dependency's latest release, and per-version pass/fail counts
+land in `meta.json` alongside the generation inputs.
 
 ## Ecosystems
 
 Toolchain detection ([brief](https://github.com/git-pkgs/brief)), manifest and
 lockfile parsing ([manifests](https://github.com/git-pkgs/manifests), 44
-formats), registry metadata ([registries](https://github.com/git-pkgs/registries),
-25 registries), package-manager operations
+formats), registry metadata
+([registries](https://github.com/git-pkgs/registries), 25 registries),
+package-manager operations
 ([managers](https://github.com/git-pkgs/managers), 36 CLIs), source outlining
-([outline](https://github.com/git-pkgs/outline), 35 languages via
-tree-sitter), changelog parsing, OSV lookup, and cloning all come from
-[git-pkgs](https://github.com/git-pkgs). Dependent discovery for `corpus`
-comes from [ecosyste.ms](https://ecosyste.ms) via
-[enrichment](https://github.com/git-pkgs/enrichment). LLM invocation goes
-through [harness](https://github.com/alpha-omega-security/harness), so the
-backend is `claude`, `codex`, `copilot`, or `opencode` behind a `--backend`
-flag. The only per-ecosystem code in this repository is a usage indexer that
-maps a dependency name to the target files referencing it:
+and structured import extraction
+([outline](https://github.com/git-pkgs/outline), tree-sitter, 19 languages
+for imports), package-identity to source-name mapping
+([provides](https://github.com/git-pkgs/provides)), changelog parsing, OSV
+lookup, and cloning all come from [git-pkgs](https://github.com/git-pkgs).
+Dependent discovery for `corpus` comes from
+[ecosyste.ms](https://ecosyste.ms) via
+[dependents](https://github.com/git-pkgs/dependents).
 
-| Ecosystem | Languages | Entry-point matching |
+`outline.Imports` returns each import statement's module path, kind, bound
+names, and local aliases; `outline.Refs` returns direct member accesses on
+those aliases. Matching an import's module path back to a dependency PURL is
+`provides`: a curated Python catalog covers distributions whose module name is
+unrelated to the registry name ([PyYAML](https://pypi.org/project/PyYAML/)
+installs `yaml`, [Pillow](https://pypi.org/project/Pillow/) installs `PIL`),
+and a naming-convention resolver handles the common case for every
+ecosystem below. What remains here per ecosystem is a `specs` entry in
+[`internal/hyrum/usage/index.go`](internal/hyrum/usage/index.go) (file
+extensions, whether the language allows referencing a dependency's top-level
+name without an import line) and a test-runner command for `check`/`--verify`.
+
+| purl type | languages | outline extracts |
 |---|---|---|
-| npm | JavaScript, TypeScript | `require()`, `import`, chained `.member` |
+| npm | JavaScript, TypeScript | `require()`, ESM `import`, chained `.member` |
 | pypi | Python | `import`, `from ... import`, attribute access |
-| golang | Go | `import "module/path"`, package selectors and qualified types |
-| gem | Ruby | `require 'gem'`, `GemName::` and `GemName.x` refs |
+| golang | Go | `import "path"`, selectors, qualified types |
+| gem | Ruby | `require`, `Const::` and `Const.method` refs |
 | cargo | Rust | `use crate::`, `crate::path` refs |
 | composer | PHP | `use Vendor\...`, `Vendor\X` refs (case-folded) |
-| hex | Elixir | `alias`/`import`/`use Module`, `Module.x` refs |
+| hex | Elixir | `alias`/`import`/`use`, `Module.fun` refs |
 
-Import statements and receiver.member references are extracted per file by
-[git-pkgs/outline](https://github.com/git-pkgs/outline)'s tree-sitter-backed
-`Imports` and `Refs`. Mapping a package identity to the module or namespace
-names it provides in source is
-[git-pkgs/provides](https://github.com/git-pkgs/provides)'s job: a curated
-Python catalog handles distributions whose module name is unrelated to the
-registry name (PyYAML → `yaml`, Pillow → `PIL`), and a naming-convention
-resolver covers the rest. Adding an ecosystem here is one entry in
-`internal/hyrum/usage/index.go`'s `specs` map (file extensions and whether the
-language allows referencing a dependency's top-level name without an import
-line) plus a convention in `provides/heuristic`.
+## Security
+
+`gen --run` and `corpus --run` feed third-party source code, changelogs,
+registry metadata, and OSV advisory text to an LLM backend that has a shell
+tool enabled. Any of that content can carry prompt-injection text, and on the
+host the backend runs as you. `--container` bounds that to an ephemeral
+container with a fresh HOME, dropped capabilities, and the target mounted
+read-only, and is the recommended mode for `corpus --discover` or for `gen`
+against any checkout you did not author. See [SECURITY.md](SECURITY.md) for
+the reporting policy and [threatmodel.md](threatmodel.md) for the trust
+boundaries, numbered threats, and known residuals.
 
 ## License
 

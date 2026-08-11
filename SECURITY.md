@@ -1,56 +1,84 @@
-# Security
+# Security policy
 
-## Reporting
+## Reporting a vulnerability
 
-Report vulnerabilities via GitHub's private vulnerability reporting on this
-repository, or by email to security@alpha-omega.dev.
+Please report security issues through GitHub's private vulnerability reporting
+on this repository: open the Security tab and choose "Report a vulnerability".
+That keeps the report private between you and the maintainers until a fix is
+ready.
 
-## Threat model
+If you cannot use GitHub, email info@alpha-omega.dev with "hyrum security" in
+the subject line.
 
-`hyrum gen --run` and `hyrum corpus --run` invoke an LLM backend against a
-workspace containing source code from three origins: the target repository
-(user-supplied path or corpus-cloned URL), a clone of the dependency's source
-repository (URL from the package registry), and metadata fetched from the
-registry and OSV. All three can contain text crafted to influence the LLM.
+We aim to acknowledge new reports within five working days and to agree a
+disclosure timeline with you once the issue is confirmed; please do not open a
+public issue for security problems.
 
-### What is protected
+## Reports written or found by AI tools
 
-Generated file paths from the LLM are rejected if absolute, empty, or
-containing `..` (`internal/hyrum/run.go:WriteFiles`). The dependency clone,
-and each dependent clone in `corpus`, is stripped of files that agent CLIs
-auto-load as instructions (`CLAUDE.md`, `AGENTS.md`, `.claude/`, `.cursor/`,
-and similar; `harness.StripDirectives`) before any skill reads it. A
-workspace-level project-instructions file states that the run is
-non-interactive so a global user rule of "stop and ask on error" does not
-leave the process waiting on absent input. `git` and package-manager
-subprocesses receive argv arrays; dependency names and URLs are never
-interpolated into a shell string.
+If you used an AI tool to find or write up the issue, say so in the report.
 
-### Known gaps
+Before submitting, verify the finding yourself: confirm the affected code path
+exists in this repository at the cited line, run the proof of concept, and
+check that the behaviour matches what the tool claims. AI tools regularly
+invent function names, file paths, and impact claims that do not hold up. A
+report we cannot reproduce, that cites code that is not there, or that
+proposes a fix using APIs that do not exist will be closed and may get the
+account blocked from future reports.
 
-`gen` symlinks the target repository into the workspace rather than copying
-it, so agent-directive files in the target are not stripped (stripping would
-modify the user's checkout). Registry metadata
-(homepage, description, repository URL) is written into `context.json` for the
-skill to read; a package with adversarial metadata could place instruction-like
-text there. The statement in each `SKILL.md` that workspace content is data
-rather than instructions is advisory and depends on the backend honouring it.
+Do not paste the tool's output as the report. Write what you actually
+verified, in your own words, and keep it short.
 
-### `--container`
+## Supported versions
 
-Passing `--container default` (or an image name) to `gen` or `corpus` runs the
-backend inside an ephemeral container with `--cap-drop ALL`,
-`--security-opt no-new-privileges`, a non-root user, `HOME=/tmp` on a tmpfs,
-the workspace bind-mounted at `/work`, and the target repository bind-mounted
-read-only at `/work/target`. That removes access to the user's global agent
-configuration and prevents any write to the target checkout, closing the gaps
-above except the registry-metadata one (which is bounded to text inside a JSON
-value the backend reads). The default image is
-`ghcr.io/alpha-omega-security/scrutineer-runner`, which bundles the harness
-backends and the git-pkgs tools. Network egress is not restricted in this
-mode; [scrutineer](https://github.com/alpha-omega-security/scrutineer)'s
-runner adds an allowlist proxy for that, and extracting its container runner
-into harness for shared use is tracked upstream.
+hyrum is not yet tagged; only the current `main` branch is supported. If you
+find a problem in an older commit, check whether it still reproduces on `main`
+before reporting.
 
-Without `--container`, restrict `--run` to repositories and dependencies you
-have reason to trust.
+## Severity
+
+We rate confirmed issues as Low, Medium, High, or Critical and publish that
+rating in the advisory. We do not set CVSS vectors: hyrum is an operator-run
+CLI with no package-manager install base and no network-listening surface, so
+most CVSS inputs do not map cleanly. If a downstream database assigns a CVSS
+score to one of our advisories, that score is theirs.
+
+## Scope
+
+hyrum is a CLI that clones third-party repositories, fetches package-registry
+metadata, and drives an LLM agent CLI over the result. Without `--container`
+that agent runs directly on the operator's host. See
+[`threatmodel.md`](threatmodel.md) for the trust boundaries, numbered threats,
+mitigations, and known residuals. We are interested in reports where:
+
+- a malicious dependency repository, target repository, or registry response
+  can escape the workspace or container
+- generated file output can write outside the `--out` directory
+- `--verify` or `check` can be induced to execute code outside the scratch
+  directory
+- credentials passed via environment variable can leak to a third party
+
+Issues that require the operator to point `--run` at hostile input on the host
+without `--container` are lower priority but still welcome; the threat model
+already recommends against that.
+
+## Out of scope
+
+These are not treated as security issues:
+
+- Code execution inside the `--container` runner that stays inside the
+  container. The agent runs with shell access by design; the container is the
+  boundary.
+- Gaps already listed as residuals in `threatmodel.md`. Reports that turn a
+  documented residual into a working exploit are welcome and credited, but the
+  severity reflects that the gap was already public.
+- Prompt injection that only affects the content of the generated tests. The
+  operator reviews and commits generated tests; they do not run automatically
+  outside `--verify`.
+- Resource exhaustion from a cloned repository (large clones, slow generation,
+  oversized outline). Generation has a per-step cost cap and outline has a
+  per-file size limit; a repository that hits those fails its own run.
+- Anything that requires the attacker to already control the operator's host,
+  the container runtime, or the environment variables hyrum is launched with.
+- Issues in dependencies that hyrum does not reach. Run `govulncheck ./...`
+  first; if it does not flag the path, neither will we.
