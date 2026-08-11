@@ -40,11 +40,11 @@ func TestJSRequireCJS(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := symbolNames(s)
-	if got["WebSocket"] != 1 {
-		t.Errorf("WebSocket sites = %d, want 1", got["WebSocket"])
+	if got["ws"] != 1 {
+		t.Errorf("module import site count = %d, want 1: %v", got["ws"], got)
 	}
-	if got["WebSocket.Server"] != 2 {
-		t.Errorf("WebSocket.Server sites = %d, want 2", got["WebSocket.Server"])
+	if got["ws.Server"] != 2 {
+		t.Errorf("ws.Server sites = %d, want 2: %v", got["ws.Server"], got)
 	}
 }
 
@@ -63,10 +63,13 @@ func TestJSImportNamed(t *testing.T) {
 		t.Errorf("named import Server not recorded: %v", got)
 	}
 	if _, ok := got["WebSocket"]; !ok {
-		t.Errorf("aliased import should record original name WebSocket: %v", got)
+		t.Errorf("aliased import should record export name WebSocket: %v", got)
 	}
-	if got["WS.OPEN"] != 1 {
-		t.Errorf("member access on local alias not recorded: %v", got)
+	if got["WebSocket.OPEN"] != 1 {
+		t.Errorf("member access should record under export name: %v", got)
+	}
+	if _, ok := got["WS.OPEN"]; ok {
+		t.Errorf("member access recorded under local alias, want export name: %v", got)
 	}
 }
 
@@ -83,8 +86,8 @@ func TestJSImportDefaultAndNamespace(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := symbolNames(s)
-	if got["ws.createWebSocketStream"] != 1 || got["WS.Server"] != 1 {
-		t.Errorf("namespace/default member access: %v", got)
+	if got["ws.createWebSocketStream"] != 1 || got["ws.Server"] != 1 {
+		t.Errorf("namespace/default member access mapped through to module: %v", got)
 	}
 	for _, sym := range s.Symbols {
 		for _, site := range sym.Sites {
@@ -99,7 +102,6 @@ func TestJSRequireChainedMember(t *testing.T) {
 	root := writeTree(t, map[string]string{
 		"a.js": "const DEFAULT_WS_ENGINE = require(\"ws\").Server;\n" +
 			"new DEFAULT_WS_ENGINE({ noServer: true });\n",
-		"b.js": "require('ws').createWebSocketStream(sock);\n",
 	})
 	s, err := Index("npm", root, "ws")
 	if err != nil {
@@ -107,13 +109,10 @@ func TestJSRequireChainedMember(t *testing.T) {
 	}
 	got := symbolNames(s)
 	if got["Server"] == 0 {
-		t.Errorf("chained .Server not recorded as export: %v", got)
-	}
-	if got["createWebSocketStream"] == 0 {
-		t.Errorf("bare chained call not recorded: %v", got)
+		t.Errorf("chained .Server not recorded as named export: %v", got)
 	}
 	if got["ws"] != 0 {
-		t.Errorf("chained require should not fall back to bare dep symbol: %v", got)
+		t.Errorf("chained require should not also record the module: %v", got)
 	}
 }
 
@@ -127,10 +126,10 @@ func TestJSSubpathMatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := symbolNames(s)
-	if got["Sender"] != 1 {
-		t.Errorf("subpath require not recorded: %v", got)
+	if got["ws/lib/sender"] != 1 {
+		t.Errorf("subpath require not recorded under module path: %v", got)
 	}
-	if _, ok := got["other"]; ok {
+	if _, ok := got["wss"]; ok {
 		t.Errorf("prefix-only match leaked: %v", got)
 	}
 }

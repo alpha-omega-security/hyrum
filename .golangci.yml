@@ -2,11 +2,19 @@ version: "2"
 
 linters:
   enable:
+    - dupl
     - errcheck
+    - gocognit
+    - goconst
     - gocritic
+    - gocyclo
     - govet
     - ineffassign
+    - ireturn
+    - maintidx
+    - mnd
     - staticcheck
+    - unparam
     - unused
   settings:
     errcheck:
@@ -15,8 +23,30 @@ linters:
         - fmt.Fprintln
         - fmt.Fprint
         - (*os.File).Close
+        - (*text/tabwriter.Writer).Flush
+    goconst:
+      # Test fixtures repeat literal inputs by design; do not count them
+      # toward the occurrence threshold for production code.
+      ignore-tests: true
+    mnd:
+      # File modes and small structural counts are self-documenting.
+      ignored-numbers: ["0o644", "0o755", "2", "3", "4"]
+      ignored-functions:
+        - strings.SplitN
+        - make
+    ireturn:
+      # Registry/factory lookups return the interface by design.
+      allow:
+        - anon
+        - error
+        - stdlib
+        - empty
+        - github.com/alpha-omega-security/hyrum/internal/hyrum/usage.Indexer
+        - github.com/git-pkgs/managers.Manager
   exclusions:
     rules:
       - path: _test\.go
         linters:
           - errcheck
+          - goconst
+          - mnd

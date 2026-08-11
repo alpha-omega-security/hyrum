@@ -39,15 +39,16 @@ func TestPyModuleImport(t *testing.T) {
 	if got["flask.jsonify"] == 0 {
 		t.Errorf("attribute access on module binding not recorded: %v", got)
 	}
-	if got["fjson.dumps"] == 0 {
-		t.Errorf("attribute access on aliased module not recorded: %v", got)
+	if got["flask.json.dumps"] == 0 {
+		t.Errorf("attribute access on aliased module should record under module path: %v", got)
 	}
 }
 
 func TestPyNoPrefixLeak(t *testing.T) {
 	root := writeTree(t, map[string]string{
 		"a.py": "import flask\n" +
-			"unflask.something()\n", // 'flask.' appears mid-identifier
+			"unflask.something()\n" + // 'flask' inside a longer identifier
+			"'flask.string_literal'\n", // and inside a string literal
 	})
 	s, err := Index("pypi", root, "flask")
 	if err != nil {
@@ -56,6 +57,9 @@ func TestPyNoPrefixLeak(t *testing.T) {
 	got := symbolNames(s)
 	if got["flask.something"] != 0 {
 		t.Errorf("mid-identifier match leaked: %v", got)
+	}
+	if got["flask.string_literal"] != 0 {
+		t.Errorf("string-literal match leaked: %v", got)
 	}
 }
 
@@ -96,5 +100,19 @@ func TestPyHyphenUnderscore(t *testing.T) {
 	}
 	if symbolNames(s)["decode"] == 0 {
 		t.Errorf("hyphen/underscore normalisation failed: %v", symbolNames(s))
+	}
+}
+
+func TestPyDistributionCase(t *testing.T) {
+	// PyPI distribution name "Flask"; module import is lowercase.
+	root := writeTree(t, map[string]string{
+		"a.py": "from flask import jsonify\n",
+	})
+	s, err := Index("pypi", root, "Flask")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if symbolNames(s)["jsonify"] == 0 {
+		t.Errorf("case-insensitive distribution match failed: %v", symbolNames(s))
 	}
 }
