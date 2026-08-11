@@ -146,6 +146,7 @@ func (p *pipeline) genOne(ctx context.Context, t *hyrum.Target, idx *hyrum.Histo
 	}
 	var res *hyrum.RunResult
 	var totalCost float64
+	var recoveredSteps []string
 	for _, s := range skillSteps {
 		fmt.Fprintf(os.Stderr, "  [%s]\n", s.name)
 		r, err := runner.RunSkill(ctx, p.h, ws, s.name, s.out)
@@ -155,6 +156,10 @@ func (p *pipeline) genOne(ctx context.Context, t *hyrum.Target, idx *hyrum.Histo
 				return err
 			}
 			continue
+		}
+		if r.BackendError != "" {
+			fmt.Fprintf(os.Stderr, "  ! %s/%s: %s\n", d.Name, s.name, r.BackendError)
+			recoveredSteps = append(recoveredSteps, s.name)
 		}
 		totalCost += r.CostUSD
 		res = r
@@ -184,15 +189,20 @@ func (p *pipeline) genOne(ctx context.Context, t *hyrum.Target, idx *hyrum.Histo
 	if p.verify {
 		verify := p.runVerify(ctx, ws, d, latest, gen.Files)
 		meta["verify"] = verify
-		if v, cost, err := p.runValidate(ctx, runner, ws, verify); err != nil {
+		v, cost, recovery, err := p.runValidate(ctx, runner, ws, verify)
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "  validate: %v\n", err)
 		} else if v != nil {
+			if recovery != "" {
+				recoveredSteps = append(recoveredSteps, "hyrum-validate")
+			}
 			meta["validate"] = v.Verdicts
 			totalCost += cost
 			meta["cost_usd"] = totalCost
 			reportVerdicts(v.Verdicts)
 		}
 	}
+	addBackendRecoveries(meta, recoveredSteps)
 	if err := writeJSON(filepath.Join(outDir, "meta.json"), meta); err != nil {
 		return err
 	}
@@ -200,26 +210,37 @@ func (p *pipeline) genOne(ctx context.Context, t *hyrum.Target, idx *hyrum.Histo
 	return nil
 }
 
+func addBackendRecoveries(meta map[string]any, steps []string) {
+	if len(steps) == 0 {
+		return
+	}
+	meta["recovered_output"] = true
+	meta["recovered_steps"] = steps
+}
+
 // runValidate stages the verify results and runs the hyrum-validate skill to
 // classify each latest-version failure and flag weak assertions. It returns
 // nil when there is nothing to validate (verify errored or ran no tests).
-func (p *pipeline) runValidate(ctx context.Context, runner hyrum.Runner, ws string, verify []hyrum.VerifyResult) (*hyrum.ValidateResult, float64, error) {
+func (p *pipeline) runValidate(ctx context.Context, runner hyrum.Runner, ws string, verify []hyrum.VerifyResult) (*hyrum.ValidateResult, float64, string, error) {
 	if !anyRan(verify) {
-		return nil, 0, nil
+		return nil, 0, "", nil
 	}
 	if err := writeJSON(filepath.Join(ws, "verify.json"), verify); err != nil {
-		return nil, 0, err
+		return nil, 0, "", err
 	}
 	fmt.Fprintf(os.Stderr, "  [hyrum-validate]\n")
 	r, err := runner.RunSkill(ctx, p.h, ws, "hyrum-validate", "verdict.json")
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, "", err
+	}
+	if r.BackendError != "" {
+		fmt.Fprintf(os.Stderr, "  ! hyrum-validate: %s\n", r.BackendError)
 	}
 	var out hyrum.ValidateResult
 	if err := r.Decode(&out); err != nil {
-		return nil, r.CostUSD, fmt.Errorf("decode verdict.json: %w", err)
+		return nil, r.CostUSD, "", fmt.Errorf("decode verdict.json: %w", err)
 	}
-	return &out, r.CostUSD, nil
+	return &out, r.CostUSD, r.BackendError, nil
 }
 
 // anyRan reports whether at least one version's tests were parsed. A verify

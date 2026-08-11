@@ -2,7 +2,6 @@ package hyrum
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -67,6 +66,10 @@ func (r ContainerRunner) RunSkill(ctx context.Context, h harness.Harness, ws, na
 	}
 
 	absWork, err := filepath.Abs(ws)
+	if err != nil {
+		return nil, err
+	}
+	outputPath, err := prepareOutput(absWork, outputFile)
 	if err != nil {
 		return nil, err
 	}
@@ -141,22 +144,15 @@ func (r ContainerRunner) RunSkill(ctx context.Context, h harness.Harness, ws, na
 	waitErr := cmd.Wait()
 	_ = pw.Close()
 	<-done
+	var runErr error
 	if waitErr != nil {
 		if detail := h.AccountErrorText(stderr.String()); detail != "" {
-			return nil, fmt.Errorf("%s: %s", h.Binary(), detail)
+			runErr = &harness.AccountError{Detail: detail}
+		} else {
+			runErr = fmt.Errorf("%s run: %w: %s", runtime, waitErr, strings.TrimSpace(stderr.String()))
 		}
-		return nil, fmt.Errorf("%s run: %w: %s", runtime, waitErr, strings.TrimSpace(stderr.String()))
 	}
-
-	b, err := os.ReadFile(filepath.Join(absWork, outputFile))
-	if err != nil {
-		return nil, fmt.Errorf("read %s: %w (skill did not write output)", outputFile, err)
-	}
-	if !json.Valid(b) {
-		return nil, fmt.Errorf("%s is not valid JSON", outputFile)
-	}
-	res.Output = b
-	return res, nil
+	return finishRun(ctx, res, outputPath, name, outputFile, runErr)
 }
 
 // runArgs builds the container-run argv up to and including the image name.

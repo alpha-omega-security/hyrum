@@ -20,6 +20,13 @@ The generated files are plain `node:test` (or pytest, or `go test`) files
 under `tests/hyrum/<dep>/from_<repo>/` with a `meta.json` recording the
 baseline version and generation inputs.
 
+If a backend exits non-zero after writing a fresh, usable output artifact,
+Hyrum preserves that output and records `recovered_output: true` plus the
+affected `recovered_steps` in `meta.json`. Raw backend output is not persisted.
+The expected artifact is removed before every invocation, so output from an
+earlier run cannot be recovered by mistake. Cancellation and provider-account
+failures remain fatal even when an artifact exists.
+
 ## On each update PR
 
 ```yaml

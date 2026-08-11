@@ -3,6 +3,7 @@ package hyrum
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -49,7 +50,13 @@ type RunResult struct {
 	CostUSD   float64
 	Turns     int
 	SessionID string
+	// BackendError records a non-zero backend exit when the same invocation
+	// still produced a fresh, usable output artifact. It is a categorical,
+	// safe-to-display warning; raw provider output is never stored here.
+	BackendError string
 }
+
+const recoveredBackendError = "backend exited non-zero after writing fresh output"
 
 // Decode unmarshals the skill's output file into v.
 func (r *RunResult) Decode(v any) error {
@@ -84,6 +91,10 @@ func RunSkillWithEmit(ctx context.Context, h harness.Harness, ws, name, outputFi
 		OutputFile:   outputFile,
 		SystemPrompt: headlessSystemPrompt,
 	}
+	outputPath, err := prepareOutput(ws, outputFile)
+	if err != nil {
+		return nil, err
+	}
 
 	// Backends that do not report a price (codex) still report token usage;
 	// fall back to the list-price estimate for the backend's default model so
@@ -111,19 +122,85 @@ func RunSkillWithEmit(ctx context.Context, h harness.Harness, ws, name, outputFi
 		}
 	}
 
-	if err := harness.Run(ctx, h, job, wrapped); err != nil {
-		return nil, err
+	runErr := harness.Run(ctx, h, job, wrapped)
+	return finishRun(ctx, res, outputPath, name, outputFile, runErr)
+}
+
+// prepareOutput removes the expected artifact before invoking a backend. Skill
+// workspaces are intentionally reusable, so this prevents a failed invocation
+// from appearing successful by leaving an older output file in place.
+func prepareOutput(ws, outputFile string) (string, error) {
+	clean := filepath.Clean(outputFile)
+	if outputFile != clean || clean == "." || clean == ".." || clean != filepath.Base(clean) || filepath.IsAbs(clean) {
+		return "", fmt.Errorf("refusing output path %q", outputFile)
+	}
+	path := filepath.Join(ws, clean)
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return "", fmt.Errorf("remove stale %s: %w", outputFile, err)
+	}
+	return path, nil
+}
+
+// finishRun reads the artifact written by this invocation. A non-zero backend
+// exit is recoverable only when a fresh, usable JSON artifact exists; otherwise
+// the backend error remains fatal. The backend failure is retained on a
+// successful result so callers do not silently treat a partial run as clean.
+func finishRun(ctx context.Context, res *RunResult, outputPath, skillName, outputFile string, runErr error) (*RunResult, error) {
+	if runErr != nil {
+		var accountErr *harness.AccountError
+		if ctx.Err() != nil || errors.As(runErr, &accountErr) {
+			return nil, runErr
+		}
 	}
 
-	b, err := os.ReadFile(filepath.Join(ws, outputFile))
+	b, err := os.ReadFile(outputPath)
 	if err != nil {
-		return nil, fmt.Errorf("read %s: %w (skill did not write output)", outputFile, err)
+		outputErr := fmt.Errorf("read %s: %w (skill did not write output)", outputFile, err)
+		if runErr != nil {
+			return nil, fmt.Errorf("%w; %v", runErr, outputErr)
+		}
+		return nil, outputErr
 	}
 	if !json.Valid(b) {
-		return nil, fmt.Errorf("%s is not valid JSON", outputFile)
+		outputErr := fmt.Errorf("%s is not valid JSON", outputFile)
+		if runErr != nil {
+			return nil, fmt.Errorf("%w; %v", runErr, outputErr)
+		}
+		return nil, outputErr
 	}
+	if runErr != nil {
+		if err := validateRecoveredOutput(skillName, b); err != nil {
+			return nil, fmt.Errorf("%w; %v", runErr, err)
+		}
+	}
+
 	res.Output = b
+	if runErr != nil {
+		res.BackendError = recoveredBackendError
+	}
 	return res, nil
+}
+
+func validateRecoveredOutput(skillName string, b []byte) error {
+	switch skillName {
+	case "hyrum-generate":
+		var gen GenerateResult
+		if err := json.Unmarshal(b, &gen); err != nil {
+			return fmt.Errorf("decode recovered generate output: %w", err)
+		}
+		if len(gen.Files) == 0 {
+			return fmt.Errorf("recovered generate output has no files")
+		}
+	case "hyrum-validate":
+		var validate ValidateResult
+		if err := json.Unmarshal(b, &validate); err != nil {
+			return fmt.Errorf("decode recovered validate output: %w", err)
+		}
+		if len(validate.Verdicts) == 0 {
+			return fmt.Errorf("recovered validate output has no verdicts")
+		}
+	}
+	return nil
 }
 
 // WriteFiles writes each generated file under root, refusing paths that escape
