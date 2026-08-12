@@ -11,7 +11,11 @@ updates:
       alpha-omega:
         patterns:
           - "github.com/alpha-omega-security/*"
+    cooldown:
+      default-days: 7
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7

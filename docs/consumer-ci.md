@@ -31,10 +31,10 @@ on:
       - package-lock.json
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - run: go install github.com/alpha-omega-security/hyrum/cmd/hyrum@latest
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: go install github.com/alpha-omega-security/hyrum/cmd/hyrum@d83039d50e33f85051984fc92e069ec499faa1b0
       - run: hyrum check --dep ws@${{ steps.bump.outputs.version }}
 ```
 
