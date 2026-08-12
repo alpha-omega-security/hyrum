@@ -161,10 +161,8 @@ const maxLogRecord = 8 << 20
 const logFields = 4
 
 // parseLogRecord splits one NUL-delimited record from streamLog into a
-// Commit. With nameOnly, the file list trails the body inside the same
-// record; a body ends at the first blank line and everything after it is
-// one path per line.
-func parseLogRecord(rec, us string, nameOnly bool) (Commit, bool) {
+// Commit. With nameOnly, an RS byte separates the body from the file list.
+func parseLogRecord(rec, us, fileSep string, nameOnly bool) (Commit, bool) {
 	fields := strings.SplitN(rec, us, logFields)
 	if len(fields) < logFields {
 		return Commit{}, false
@@ -172,10 +170,10 @@ func parseLogRecord(rec, us string, nameOnly bool) (Commit, bool) {
 	body := fields[3]
 	var files []string
 	if nameOnly {
-		body, files = splitBodyFiles(body)
+		body, files = splitBodyFiles(body, fileSep)
 	}
 	return Commit{
-		SHA:     strings.TrimLeft(fields[0], "\n"),
+		SHA:     strings.TrimSpace(fields[0]),
 		Date:    fields[1],
 		Subject: fields[2],
 		Body:    strings.TrimSpace(body),
@@ -184,16 +182,13 @@ func parseLogRecord(rec, us string, nameOnly bool) (Commit, bool) {
 }
 
 // splitBodyFiles separates the commit body from the trailing --name-only
-// file list. The body ends at the first blank line; when the body is empty
-// the record is only file paths after a leading newline.
-func splitBodyFiles(body string) (string, []string) {
-	if i := strings.Index(body, "\n\n"); i >= 0 {
-		return body[:i], nonEmptyLines(body[i+len("\n\n"):])
+// file list using the explicit separator emitted by streamLog.
+func splitBodyFiles(body, fileSep string) (string, []string) {
+	before, after, ok := strings.Cut(body, fileSep)
+	if !ok {
+		return body, nil
 	}
-	if j := strings.LastIndexByte(body, '\n'); j >= 0 && body[:j] == "" {
-		return "", nonEmptyLines(body)
-	}
-	return body, nil
+	return before, nonEmptyLines(after)
 }
 
 func nonEmptyLines(s string) []string {
@@ -208,16 +203,17 @@ func nonEmptyLines(s string) []string {
 
 // streamLog runs `git log --all` in repo and calls fn for each commit. paths
 // restricts to commits touching those paths; nameOnly adds --name-only so
-// Commit.Files is populated. The format uses NUL between records and US
-// (0x1f) between fields so subjects and bodies containing --- or blank lines
-// parse unambiguously.
+// Commit.Files is populated. The format uses NUL between records, US (0x1f)
+// between fields, and RS (0x1e) before a file list so subjects and bodies
+// containing --- or blank lines parse unambiguously.
 func streamLog(ctx context.Context, repo string, paths []string, nameOnly bool, fn func(Commit)) error {
-	// %x00 and %x1f in the format expand to NUL and US in git's output; the
-	// argv string itself contains no control bytes.
-	const rs, us = "\x00", "\x1f"
+	// The %xNN sequences expand to control bytes in git's output; the argv
+	// string itself contains no control bytes.
+	const rs, us, fileSep = "\x00", "\x1f", "\x1e"
 	args := []string{"-C", repo, "log", "--all", "--date=short",
-		"--format=%H%x1f%ad%x1f%s%x1f%b%x00"}
+		"--format=%x00%H%x1f%ad%x1f%s%x1f%b"}
 	if nameOnly {
+		args[len(args)-1] += "%x1e"
 		args = append(args, "--name-only")
 	}
 	if len(paths) > 0 {
@@ -239,7 +235,7 @@ func streamLog(ctx context.Context, repo string, paths []string, nameOnly bool, 
 	sc.Buffer(nil, maxLogRecord)
 	sc.Split(splitOn(rs[0]))
 	for sc.Scan() {
-		if c, ok := parseLogRecord(sc.Text(), us, nameOnly); ok {
+		if c, ok := parseLogRecord(sc.Text(), us, fileSep, nameOnly); ok {
 			fn(c)
 		}
 	}

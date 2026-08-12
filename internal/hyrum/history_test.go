@@ -26,7 +26,7 @@ func gitInit(t *testing.T) string {
 	run("add", ".")
 	run("commit", "-q", "-m", "add ws dep")
 	os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"dependencies":{"ws":"8.0.0"}}`), 0o644)
-	run("commit", "-q", "-am", "bump\n\nunrelated body text")
+	run("commit", "-q", "-am", "bump\n\nunrelated body text\n\nsecond paragraph")
 	os.WriteFile(filepath.Join(dir, "other.txt"), []byte("x"), 0o644)
 	run("add", ".")
 	run("commit", "-q", "-m", "fix WS handling\n\nbody with --- in it\nand more")
@@ -50,6 +50,30 @@ func TestStreamLogParsesRecords(t *testing.T) {
 	}
 	if len(got[0].SHA) != 40 {
 		t.Errorf("SHA = %q", got[0].SHA)
+	}
+}
+
+func TestStreamLogAssociatesNamesWithTheirCommit(t *testing.T) {
+	dir := gitInit(t)
+	var got []Commit
+	if err := streamLog(t.Context(), dir, []string{"package.json"}, true, func(c Commit) {
+		got = append(got, c)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("commits = %d, want 2: %+v", len(got), got)
+	}
+	for _, commit := range got {
+		if len(commit.SHA) != 40 {
+			t.Errorf("SHA = %q", commit.SHA)
+		}
+		if len(commit.Files) != 1 || commit.Files[0] != "package.json" {
+			t.Errorf("%q files = %q", commit.Subject, commit.Files)
+		}
+	}
+	if got[0].Subject != "bump" || got[0].Body != "unrelated body text\n\nsecond paragraph" {
+		t.Errorf("bump commit = %+v", got[0])
 	}
 }
 
