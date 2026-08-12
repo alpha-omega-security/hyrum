@@ -105,6 +105,8 @@ func TestSplitDependentSpec(t *testing.T) {
 	cases := []struct{ in, url, ref string }{
 		{"https://github.com/a/b", "https://github.com/a/b", ""},
 		{"https://github.com/a/b@v1.2.3", "https://github.com/a/b", "v1.2.3"},
+		{"https://token@github.com/a/b", "https://token@github.com/a/b", ""},
+		{"https://token@github.com/a/b@main", "https://token@github.com/a/b", "main"},
 		{"git@github.com:a/b.git", "git@github.com:a/b.git", ""},
 		{"git@github.com:a/b.git@main", "git@github.com:a/b.git", "main"},
 	}

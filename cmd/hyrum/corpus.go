@@ -152,7 +152,7 @@ func discoverDependents(ctx context.Context, rc *registries.Client, upstream, re
 // splitDependentSpec parses "url" or "url@ref". The @ is taken from the end
 // so ssh URLs (git@host:path) are left intact when no ref is given.
 func splitDependentSpec(s string) (url, ref string) {
-	if i := lastAt(s); i > 0 && i > indexOfScheme(s) {
+	if i := lastAt(s); i > 0 && i > refSeparatorBoundary(s) {
 		return s[:i], s[i+1:]
 	}
 	return s, ""
@@ -167,12 +167,17 @@ func lastAt(s string) int {
 	return -1
 }
 
-// indexOfScheme returns the position after "://" or after "git@", so an @ in
-// the auth/scheme portion is not mistaken for a ref separator.
-func indexOfScheme(s string) int {
+// refSeparatorBoundary returns the earliest position at which an @ can denote
+// a ref. For scheme URLs this is the start of the path, after any userinfo in
+// the authority. For scp-like Git URLs it is after the git@ user prefix.
+func refSeparatorBoundary(s string) int {
 	const scheme, sshUser = "://", "git@"
 	if i := strings.Index(s, scheme); i >= 0 {
-		return i + len(scheme)
+		authority := i + len(scheme)
+		if path := strings.IndexByte(s[authority:], '/'); path >= 0 {
+			return authority + path
+		}
+		return len(s)
 	}
 	if strings.HasPrefix(s, sshUser) {
 		return len(sshUser)
