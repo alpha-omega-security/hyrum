@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/git-pkgs/brief"
 )
 
 func gitInit(t *testing.T) string {
@@ -36,7 +38,7 @@ func gitInit(t *testing.T) string {
 func TestStreamLogParsesRecords(t *testing.T) {
 	dir := gitInit(t)
 	var got []Commit
-	if err := streamLog(context.Background(), dir, nil, false, func(c Commit) {
+	if err := streamLog(context.Background(), dir, nil, logMetadata, func(c Commit) {
 		got = append(got, c)
 	}); err != nil {
 		t.Fatal(err)
@@ -56,7 +58,7 @@ func TestStreamLogParsesRecords(t *testing.T) {
 func TestStreamLogAssociatesNamesWithTheirCommit(t *testing.T) {
 	dir := gitInit(t)
 	var got []Commit
-	if err := streamLog(t.Context(), dir, []string{"package.json"}, true, func(c Commit) {
+	if err := streamLog(t.Context(), dir, []string{"package.json"}, logNames, func(c Commit) {
 		got = append(got, c)
 	}); err != nil {
 		t.Fatal(err)
@@ -79,24 +81,33 @@ func TestStreamLogAssociatesNamesWithTheirCommit(t *testing.T) {
 
 func TestBuildHistoryIndexPartitions(t *testing.T) {
 	dir := gitInit(t)
-	tgt := &Target{Path: dir, Report: nil}
-	// manifestPaths reads Report.PackageManagers; nil Report means no
-	// manifest scan, which is fine for this test.
+	tgt := &Target{Path: dir, Report: &brief.Report{PackageManagers: []brief.Detection{{
+		ConfigFiles: []string{"package.json"},
+	}}}}
 	idx, err := BuildHistoryIndex(context.Background(), tgt, []Dep{{Name: "ws"}, {Name: "lodash"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	ws := idx.For("ws")
-	if len(ws) != 2 {
-		t.Errorf("ws matches = %d, want 2 (add + case-insensitive fix): %+v", len(ws), ws)
+	if len(ws) != 3 {
+		t.Errorf("ws matches = %d, want 3 (add + bump + case-insensitive fix): %+v", len(ws), ws)
 	}
 	if len(idx.For("lodash")) != 0 {
 		t.Errorf("lodash should have 0 matches")
 	}
 }
 
+func TestTouchedManifestPathsUsesExactDiffHeaders(t *testing.T) {
+	patch := "diff --git a/packages/app/package.json b/packages/app/package.json\n"
+	paths := []string{"package.json", "packages/app/package.json"}
+	got := touchedManifestPaths(patch, paths)
+	if len(got) != 1 || got[0] != "packages/app/package.json" {
+		t.Fatalf("touchedManifestPaths = %q", got)
+	}
+}
+
 func TestStreamLogPropagatesError(t *testing.T) {
-	err := streamLog(context.Background(), "/nonexistent-repo-path", nil, false, func(Commit) {})
+	err := streamLog(context.Background(), "/nonexistent-repo-path", nil, logMetadata, func(Commit) {})
 	if err == nil {
 		t.Fatal("want error for non-repo path")
 	}

@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/git-pkgs/changelog"
@@ -26,6 +27,7 @@ type Commit struct {
 	// Files is populated for the manifest-path scan so hyrum-history can see
 	// which lockfile changed without opening the commit.
 	Files []string `json:"files,omitempty"`
+	patch string
 }
 
 // HistoryIndex holds the result of one full-history scan of the target,
@@ -59,7 +61,7 @@ func BuildHistoryIndex(ctx context.Context, t *Target, deps []Dep) (*HistoryInde
 	}
 	idx := &HistoryIndex{byName: make(map[string][]Commit, len(needles))}
 
-	err := streamLog(ctx, t.Path, nil, false, func(c Commit) {
+	err := streamLog(ctx, t.Path, nil, logMetadata, func(c Commit) {
 		hay := strings.ToLower(c.Subject + "\n" + c.Body)
 		for _, n := range needles {
 			if strings.Contains(hay, n) {
@@ -73,7 +75,8 @@ func BuildHistoryIndex(ctx context.Context, t *Target, deps []Dep) (*HistoryInde
 
 	paths := manifestPaths(t)
 	if len(paths) > 0 {
-		err = streamLog(ctx, t.Path, paths, true, func(c Commit) {
+		err = streamLog(ctx, t.Path, paths, logPatch, func(c Commit) {
+			c.Files = touchedManifestPaths(c.patch, paths)
 			idx.manifest = append(idx.manifest, c)
 		})
 		if err != nil {
@@ -113,12 +116,7 @@ func (h *HistoryIndex) For(dep string) []Commit {
 }
 
 func commitMentions(c Commit, name string) bool {
-	// The manifest scan does not carry the patch body; the skill can
-	// `git -C ./target show <sha>` for the ones it wants to inspect.
-	// A commit is included here when its subject/body or its file list
-	// mentions the name (e.g. a lockfile path like go.sum won't, but a
-	// requirements-<name>.txt would).
-	if strings.Contains(strings.ToLower(c.Subject+"\n"+c.Body), name) {
+	if strings.Contains(strings.ToLower(c.Subject+"\n"+c.Body+"\n"+c.patch), name) {
 		return true
 	}
 	for _, f := range c.Files {
@@ -160,17 +158,30 @@ const maxLogRecord = 8 << 20
 // string: SHA, date, subject, body.
 const logFields = 4
 
+type logDetail uint8
+
+const (
+	logMetadata logDetail = iota
+	logNames
+	logPatch
+)
+
 // parseLogRecord splits one NUL-delimited record from streamLog into a
-// Commit. With nameOnly, an RS byte separates the body from the file list.
-func parseLogRecord(rec, us, fileSep string, nameOnly bool) (Commit, bool) {
+// Commit. An RS byte separates the body from an optional name list or patch.
+func parseLogRecord(rec, us, detailSep string, detail logDetail) (Commit, bool) {
 	fields := strings.SplitN(rec, us, logFields)
 	if len(fields) < logFields {
 		return Commit{}, false
 	}
 	body := fields[3]
 	var files []string
-	if nameOnly {
-		body, files = splitBodyFiles(body, fileSep)
+	var patch string
+	if detail != logMetadata {
+		body, patch = splitLogDetail(body, detailSep)
+		if detail == logNames {
+			files = nonEmptyLines(patch)
+			patch = ""
+		}
 	}
 	return Commit{
 		SHA:     strings.TrimSpace(fields[0]),
@@ -178,17 +189,18 @@ func parseLogRecord(rec, us, fileSep string, nameOnly bool) (Commit, bool) {
 		Subject: fields[2],
 		Body:    strings.TrimSpace(body),
 		Files:   files,
+		patch:   patch,
 	}, true
 }
 
-// splitBodyFiles separates the commit body from the trailing --name-only
-// file list using the explicit separator emitted by streamLog.
-func splitBodyFiles(body, fileSep string) (string, []string) {
-	before, after, ok := strings.Cut(body, fileSep)
+// splitLogDetail separates the commit body from a trailing name list or patch
+// using the explicit separator emitted by streamLog.
+func splitLogDetail(body, detailSep string) (string, string) {
+	before, after, ok := strings.Cut(body, detailSep)
 	if !ok {
-		return body, nil
+		return body, ""
 	}
-	return before, nonEmptyLines(after)
+	return before, strings.TrimSpace(after)
 }
 
 func nonEmptyLines(s string) []string {
@@ -202,19 +214,24 @@ func nonEmptyLines(s string) []string {
 }
 
 // streamLog runs `git log --all` in repo and calls fn for each commit. paths
-// restricts to commits touching those paths; nameOnly adds --name-only so
-// Commit.Files is populated. The format uses NUL between records, US (0x1f)
-// between fields, and RS (0x1e) before a file list so subjects and bodies
-// containing --- or blank lines parse unambiguously.
-func streamLog(ctx context.Context, repo string, paths []string, nameOnly bool, fn func(Commit)) error {
+// restricts the history. detail optionally includes a name list or patch. The
+// format uses NUL between records, US (0x1f) between fields, and RS (0x1e)
+// before detail so subjects and bodies containing --- or blank lines parse
+// unambiguously.
+func streamLog(ctx context.Context, repo string, paths []string, detail logDetail, fn func(Commit)) error {
 	// The %xNN sequences expand to control bytes in git's output; the argv
 	// string itself contains no control bytes.
-	const rs, us, fileSep = "\x00", "\x1f", "\x1e"
+	const rs, us, detailSep = "\x00", "\x1f", "\x1e"
 	args := []string{"-C", repo, "log", "--all", "--date=short",
 		"--format=%x00%H%x1f%ad%x1f%s%x1f%b"}
-	if nameOnly {
+	if detail != logMetadata {
 		args[len(args)-1] += "%x1e"
+	}
+	switch detail {
+	case logNames:
 		args = append(args, "--name-only")
+	case logPatch:
+		args = append(args, "--patch")
 	}
 	if len(paths) > 0 {
 		args = append(args, "--")
@@ -235,7 +252,7 @@ func streamLog(ctx context.Context, repo string, paths []string, nameOnly bool, 
 	sc.Buffer(nil, maxLogRecord)
 	sc.Split(splitOn(rs[0]))
 	for sc.Scan() {
-		if c, ok := parseLogRecord(sc.Text(), us, fileSep, nameOnly); ok {
+		if c, ok := parseLogRecord(sc.Text(), us, detailSep, detail); ok {
 			fn(c)
 		}
 	}
@@ -247,6 +264,21 @@ func streamLog(ctx context.Context, repo string, paths []string, nameOnly bool, 
 		return fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
 	}
 	return nil
+}
+
+func touchedManifestPaths(patch string, paths []string) []string {
+	var touched []string
+	for _, path := range paths {
+		plain := "diff --git a/" + path + " b/" + path
+		quoted := "diff --git " + strconv.Quote("a/"+path) + " " + strconv.Quote("b/"+path)
+		for _, line := range strings.Split(patch, "\n") {
+			if line == plain || line == quoted {
+				touched = append(touched, path)
+				break
+			}
+		}
+	}
+	return touched
 }
 
 func splitOn(delim byte) bufio.SplitFunc {
