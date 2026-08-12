@@ -124,7 +124,17 @@ func (p *pipeline) genAll(ctx context.Context, t *hyrum.Target, deps []hyrum.Dep
 }
 
 func (p *pipeline) genOne(ctx context.Context, t *hyrum.Target, idx *hyrum.HistoryIndex, d hyrum.Dep) error {
-	ws := filepath.Join(p.work, targetName(t), d.Ecosystem, d.Name)
+	targetDir := targetName(t)
+	if err := validateRelativePath("target name", targetDir); err != nil {
+		return err
+	}
+	if err := validateRelativePath("ecosystem", d.Ecosystem); err != nil {
+		return err
+	}
+	if err := validateRelativePath("dependency name", d.Name); err != nil {
+		return err
+	}
+	ws := filepath.Join(p.work, targetDir, d.Ecosystem, d.Name)
 	depDir, latest, err := stageContext(ctx, t, d, ws, p.rc)
 	if err != nil {
 		return fmt.Errorf("stage: %w", err)
@@ -139,7 +149,7 @@ func (p *pipeline) genOne(ctx context.Context, t *hyrum.Target, idx *hyrum.Histo
 		return nil
 	}
 
-	fmt.Fprintf(os.Stderr, "→ %s ← %s (%s)\n", d.Name, targetName(t), d.PURL)
+	fmt.Fprintf(os.Stderr, "→ %s ← %s (%s)\n", d.Name, targetDir, d.PURL)
 	runner := p.runner
 	if runner == nil {
 		runner = hyrum.ContainerRunner{Image: p.containerImage, TargetPath: t.Path}
@@ -172,7 +182,7 @@ func (p *pipeline) genOne(ctx context.Context, t *hyrum.Target, idx *hyrum.Histo
 		return fmt.Errorf("decode tests.json: %w", err)
 	}
 
-	outDir := filepath.Join(p.outRoot, d.Name, "from_"+targetName(t))
+	outDir := filepath.Join(p.outRoot, d.Name, "from_"+targetDir)
 	written, err := hyrum.WriteFiles(outDir, gen.Files)
 	if err != nil {
 		return fmt.Errorf("write: %w", err)
@@ -181,7 +191,7 @@ func (p *pipeline) genOne(ctx context.Context, t *hyrum.Target, idx *hyrum.Histo
 		"purl":       d.PURL,
 		"ecosystem":  d.Ecosystem,
 		"baseline":   d.Version,
-		"target":     targetName(t),
+		"target":     targetDir,
 		"session_id": res.SessionID,
 		"cost_usd":   totalCost,
 		"notes":      gen.Notes,
@@ -206,7 +216,7 @@ func (p *pipeline) genOne(ctx context.Context, t *hyrum.Target, idx *hyrum.Histo
 	if err := writeJSON(filepath.Join(outDir, "meta.json"), meta); err != nil {
 		return err
 	}
-	fmt.Printf("%s ← %s: %d file(s) → %s ($%.4f)\n", d.Name, targetName(t), len(written), outDir, totalCost)
+	fmt.Printf("%s ← %s: %d file(s) → %s ($%.4f)\n", d.Name, targetDir, len(written), outDir, totalCost)
 	return nil
 }
 
@@ -334,6 +344,18 @@ func outRoot(targetPath, out string) string {
 		return out
 	}
 	return filepath.Join(targetPath, out)
+}
+
+// validateRelativePath rejects values that would escape a configured root
+// when passed to filepath.Join. Some values may contain legitimate path
+// separators, including scoped npm packages, Go modules, and Composer
+// packages, so keep those layouts while rejecting absolute, empty,
+// traversing, and unclean paths.
+func validateRelativePath(label, value string) error {
+	if !filepath.IsLocal(value) || value == "." || filepath.Clean(value) != value {
+		return fmt.Errorf("unsafe %s %q", label, value)
+	}
+	return nil
 }
 
 // targetName is the from_<x> directory component. Prefers the basename of the

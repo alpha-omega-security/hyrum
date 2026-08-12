@@ -80,6 +80,9 @@ func managerHint(t *hyrum.Target) string {
 // as an unknown ecosystem, distinct from a test failure.
 func checkOne(ctx context.Context, t *hyrum.Target, mgr managers.Manager, testsRoot, spec string) (bool, error) {
 	name, version := splitDepSpec(spec)
+	if err := validateRelativePath("dependency name", name); err != nil {
+		return false, err
+	}
 	d, _ := findDep(t, name)
 	if d.Ecosystem == "" {
 		d.Ecosystem = mgr.Ecosystem()

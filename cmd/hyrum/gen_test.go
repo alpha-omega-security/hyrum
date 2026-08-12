@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"testing"
 
 	"github.com/alpha-omega-security/harness"
 	"github.com/alpha-omega-security/hyrum/internal/hyrum"
+	"github.com/git-pkgs/brief"
 )
 
 func TestAnyRan(t *testing.T) {
@@ -41,6 +43,19 @@ func TestAddBackendRecoveries(t *testing.T) {
 	}
 	if _, ok := meta["backend_error"]; ok {
 		t.Error("raw backend error must not be persisted")
+	}
+}
+
+func TestGenOneRejectsUnsafeDependencyPath(t *testing.T) {
+	p := &pipeline{}
+	target := &hyrum.Target{
+		Path:   filepath.Join(t.TempDir(), "target"),
+		Report: &brief.Report{},
+	}
+	dep := hyrum.Dep{Name: "../../escape", Ecosystem: hyrum.EcoNPM}
+
+	if err := p.genOne(t.Context(), target, nil, dep); err == nil {
+		t.Fatal("genOne accepted a dependency name that escapes the work and output roots")
 	}
 }
 

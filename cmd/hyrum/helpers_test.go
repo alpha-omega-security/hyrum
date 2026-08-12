@@ -17,6 +17,35 @@ func TestOutRoot(t *testing.T) {
 	}
 }
 
+func TestValidateRelativePath(t *testing.T) {
+	for _, value := range []string{
+		"ws",
+		"@scope/pkg",
+		"github.com/alpha-omega-security/harness",
+		"vendor/package",
+	} {
+		if err := validateRelativePath("dependency name", value); err != nil {
+			t.Errorf("validateRelativePath(%q): %v", value, err)
+		}
+	}
+
+	for _, value := range []string{
+		"",
+		".",
+		"..",
+		"../escape",
+		"../../escape",
+		"pkg/../../escape",
+		"pkg/../other",
+		"/absolute",
+		"pkg/",
+	} {
+		if err := validateRelativePath("dependency name", value); err == nil {
+			t.Errorf("validateRelativePath(%q) succeeded", value)
+		}
+	}
+}
+
 func TestRemoteBasename(t *testing.T) {
 	cases := map[string]string{
 		"https://github.com/octobox/octobox.git": "octobox",

@@ -102,7 +102,9 @@ operator's host
   it runs; this boundary is where most of the threats below originate.
 - **B4** LLM output → filesystem. `WriteFiles` rejects absolute paths, empty
   paths, and any path containing `..`; everything else is joined under
-  `--out`.
+  `--out`. Target, ecosystem, and dependency names used to construct the
+  workspace and output directories must also be clean local paths, so
+  manifest values cannot move those directories outside `--work` or `--out`.
 - **B5** container → host. `--cap-drop ALL`, `no-new-privileges`, non-root
   user, tmpfs HOME, workspace bind-mounted read-write, target bind-mounted
   read-only. Shared kernel with the host (docker/podman namespace isolation);
