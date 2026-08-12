@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -152,19 +153,37 @@ func runTests(ctx context.Context, targetRoot, testDir, ecosystem string) (ok bo
 	if !known {
 		return false, "", fmt.Errorf("no test runner for ecosystem %q", ecosystem)
 	}
-	files, _ := filepath.Glob(filepath.Join(testDir, "*", "*"))
-	relFiles := make([]string, 0, len(files))
-	for _, f := range files {
-		if fi, err := os.Stat(f); err == nil && !fi.IsDir() && filepath.Ext(f) != ".json" {
-			r, _ := filepath.Rel(targetRoot, f)
-			relFiles = append(relFiles, r)
-		}
+	relFiles, err := runnableTestFiles(targetRoot, testDir)
+	if err != nil {
+		return false, "", err
+	}
+	if ecosystem == hyrum.EcoNPM && len(relFiles) == 0 {
+		return false, "", fmt.Errorf("no runnable test files under %s", testDir)
 	}
 	argv := build(rel, relFiles)
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Dir = targetRoot
 	out, runErr := cmd.CombinedOutput()
 	return runErr == nil, string(out), nil
+}
+
+func runnableTestFiles(targetRoot, testDir string) ([]string, error) {
+	var files []string
+	err := filepath.WalkDir(testDir, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if !entry.Type().IsRegular() || filepath.Ext(path) == ".json" {
+			return nil
+		}
+		rel, err := filepath.Rel(targetRoot, path)
+		if err != nil {
+			return err
+		}
+		files = append(files, rel)
+		return nil
+	})
+	return files, err
 }
 
 func detectManager(dir, hint string) (managers.Manager, error) {

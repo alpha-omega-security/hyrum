@@ -47,6 +47,50 @@ func TestCheckOneRejectsMissingSuite(t *testing.T) {
 	}
 }
 
+func TestRunnableTestFilesRecurses(t *testing.T) {
+	targetRoot := t.TempDir()
+	testDir := filepath.Join(targetRoot, "tests", "hyrum", "example")
+	nested := filepath.Join(testDir, "from_repo", "websocket")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	testFile := filepath.Join(nested, "message.test.js")
+	if err := os.WriteFile(testFile, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(testDir, "meta.json"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	files, err := runnableTestFiles(targetRoot, testDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := filepath.Rel(targetRoot, testFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 || files[0] != want {
+		t.Fatalf("runnableTestFiles = %q, want [%q]", files, want)
+	}
+}
+
+func TestRunTestsRejectsEmptyNodeSuite(t *testing.T) {
+	targetRoot := t.TempDir()
+	testDir := filepath.Join(targetRoot, "tests", "hyrum", "example")
+	if err := os.MkdirAll(testDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(testDir, "meta.json"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := runTests(t.Context(), targetRoot, testDir, hyrum.EcoNPM)
+	if err == nil || !strings.Contains(err.Error(), "no runnable test files") {
+		t.Fatalf("runTests error = %v", err)
+	}
+}
+
 func TestManagerHintMapsGoModulesToGomod(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "go.sum"), nil, 0o644); err != nil {
