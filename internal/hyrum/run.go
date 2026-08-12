@@ -203,23 +203,44 @@ func validateRecoveredOutput(skillName string, b []byte) error {
 	return nil
 }
 
-// WriteFiles writes each generated file under root, refusing paths that escape
-// it. It returns the list of written paths.
+// WriteFiles writes each generated file directly under root.
 func WriteFiles(root string, files []GeneratedFile) ([]string, error) {
+	return WriteFilesUnder(root, ".", files)
+}
+
+// WriteFilesUnder writes each generated file under dir within root, refusing
+// paths and symlinks that escape root. It returns the list of written paths.
+func WriteFilesUnder(root, dir string, files []GeneratedFile) ([]string, error) {
+	cleanDir := filepath.Clean(dir)
+	if !filepath.IsLocal(cleanDir) {
+		return nil, fmt.Errorf("refusing output directory %q", dir)
+	}
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return nil, err
+	}
+	outputRoot, err := os.OpenRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = outputRoot.Close() }()
+	if err := outputRoot.MkdirAll(cleanDir, 0o755); err != nil {
+		return nil, err
+	}
+
 	var written []string
 	for _, f := range files {
 		clean := filepath.Clean(f.Path)
 		if clean == "." || strings.HasPrefix(clean, "..") || filepath.IsAbs(clean) {
 			return written, fmt.Errorf("refusing path %q", f.Path)
 		}
-		dst := filepath.Join(root, clean)
-		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		rel := filepath.Join(cleanDir, clean)
+		if err := outputRoot.MkdirAll(filepath.Dir(rel), 0o755); err != nil {
 			return written, err
 		}
-		if err := os.WriteFile(dst, []byte(f.Content), 0o644); err != nil {
+		if err := outputRoot.WriteFile(rel, []byte(f.Content), 0o644); err != nil {
 			return written, err
 		}
-		written = append(written, dst)
+		written = append(written, filepath.Join(root, rel))
 	}
 	return written, nil
 }

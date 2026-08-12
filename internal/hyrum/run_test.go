@@ -286,3 +286,64 @@ func TestWriteFilesRejectsEscape(t *testing.T) {
 		}
 	}
 }
+
+func TestWriteFilesRejectsFinalSymlinkEscape(t *testing.T) {
+	out := t.TempDir()
+	outside := t.TempDir()
+	victim := filepath.Join(outside, "victim.js")
+	if err := os.WriteFile(victim, []byte("original"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(victim, filepath.Join(out, "test.js")); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := WriteFiles(out, []GeneratedFile{{Path: "test.js", Content: "overwritten"}}); err == nil {
+		t.Fatal("WriteFiles followed a final symlink outside the output root")
+	}
+	body, err := os.ReadFile(victim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "original" {
+		t.Fatalf("outside file changed to %q", body)
+	}
+}
+
+func TestWriteFilesUnderRejectsDirectorySymlinkEscape(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(root, "dep")); err != nil {
+		t.Fatal(err)
+	}
+
+	files := []GeneratedFile{{Path: "test.js", Content: "generated"}}
+	if _, err := WriteFilesUnder(root, filepath.Join("dep", "from_target"), files); err == nil {
+		t.Fatal("WriteFilesUnder followed a directory symlink outside the output root")
+	}
+	if _, err := os.Stat(filepath.Join(outside, "from_target", "test.js")); !os.IsNotExist(err) {
+		t.Fatalf("file written outside output root: %v", err)
+	}
+}
+
+func TestWriteFilesUnderWritesNestedOutput(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join("dep", "from_target")
+	files := []GeneratedFile{{Path: filepath.Join("nested", "test.js"), Content: "generated"}}
+
+	written, err := WriteFilesUnder(root, dir, files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(root, dir, "nested", "test.js")
+	if len(written) != 1 || written[0] != want {
+		t.Fatalf("written = %v, want [%s]", written, want)
+	}
+	body, err := os.ReadFile(want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "generated" {
+		t.Fatalf("body = %q", body)
+	}
+}

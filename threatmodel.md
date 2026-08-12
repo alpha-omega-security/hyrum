@@ -159,13 +159,9 @@ enabled, and the same caution applies.
 ### T3: generated test files write outside --out (medium; mitigated)
 
 `tests.json` from `hyrum-generate` contains `{path, content}` pairs.
-`WriteFiles` rejects any `path` that is absolute, empty, or contains `..` as a
-path element, then joins the remainder under `--out`. A symlink already
-present under `--out` that points elsewhere is not followed on write because
-`os.WriteFile` opens with `O_CREATE|O_TRUNC` on the final path; a symlinked
-intermediate directory would be followed. `--out` defaults to a new
-subdirectory of the target, so a pre-planted symlink there would require
-prior write access to the target.
+`WriteFilesUnder` rejects any `path` that is absolute, empty, or contains `..`
+as a path element, then writes it through an `os.Root` opened at `--out`.
+Final and intermediate symlinks cannot take the write outside that root.
 
 ### T4: generated tests execute on the host during --verify (medium; residual)
 

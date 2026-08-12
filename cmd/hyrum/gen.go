@@ -182,8 +182,9 @@ func (p *pipeline) genOne(ctx context.Context, t *hyrum.Target, idx *hyrum.Histo
 		return fmt.Errorf("decode tests.json: %w", err)
 	}
 
-	outDir := filepath.Join(p.outRoot, d.Name, "from_"+targetDir)
-	written, err := hyrum.WriteFiles(outDir, gen.Files)
+	outRel := filepath.Join(d.Name, "from_"+targetDir)
+	outDir := filepath.Join(p.outRoot, outRel)
+	written, err := hyrum.WriteFilesUnder(p.outRoot, outRel, gen.Files)
 	if err != nil {
 		return fmt.Errorf("write: %w", err)
 	}
@@ -213,7 +214,7 @@ func (p *pipeline) genOne(ctx context.Context, t *hyrum.Target, idx *hyrum.Histo
 		}
 	}
 	addBackendRecoveries(meta, recoveredSteps)
-	if err := writeJSON(filepath.Join(outDir, "meta.json"), meta); err != nil {
+	if err := writeJSONUnder(p.outRoot, outRel, "meta.json", meta); err != nil {
 		return err
 	}
 	fmt.Printf("%s ← %s: %d file(s) → %s ($%.4f)\n", d.Name, targetDir, len(written), outDir, totalCost)
@@ -541,4 +542,14 @@ func writeJSON(path string, v any) error {
 	enc := json.NewEncoder(f)
 	enc.SetIndent("", "  ")
 	return enc.Encode(v)
+}
+
+func writeJSONUnder(root, dir, name string, v any) error {
+	b, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return err
+	}
+	b = append(b, '\n')
+	_, err = hyrum.WriteFilesUnder(root, dir, []hyrum.GeneratedFile{{Path: name, Content: string(b)}})
+	return err
 }
