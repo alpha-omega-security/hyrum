@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/alpha-omega-security/hyrum/internal/hyrum"
@@ -31,6 +32,18 @@ func TestSplitDepSpec(t *testing.T) {
 func TestCheckOneRejectsUnsafeDependencyPath(t *testing.T) {
 	if _, err := checkOne(context.Background(), nil, nil, t.TempDir(), "../../escape"); err == nil {
 		t.Fatal("checkOne accepted a dependency name that escapes the tests root")
+	}
+}
+
+func TestCheckOneRejectsMissingSuite(t *testing.T) {
+	testsRoot := t.TempDir()
+	target := &hyrum.Target{Deps: []hyrum.Dep{{Name: "example", Ecosystem: hyrum.EcoNPM}}}
+	_, err := checkOne(t.Context(), target, nil, testsRoot, "example")
+	if err == nil {
+		t.Fatal("checkOne accepted a missing test suite")
+	}
+	if !strings.Contains(err.Error(), filepath.Join(testsRoot, "example")) {
+		t.Fatalf("checkOne error = %q", err)
 	}
 }
 

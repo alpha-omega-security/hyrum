@@ -98,9 +98,15 @@ func checkOne(ctx context.Context, t *hyrum.Target, mgr managers.Manager, testsR
 	}
 
 	testDir := filepath.Join(testsRoot, name)
-	if _, err := os.Stat(testDir); err != nil {
-		fmt.Fprintf(os.Stderr, "%s: no tests at %s\n", name, testDir)
-		return true, nil
+	info, err := os.Stat(testDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, fmt.Errorf("%s: no tests at %s", name, testDir)
+		}
+		return false, fmt.Errorf("%s: inspect tests at %s: %w", name, testDir, err)
+	}
+	if !info.IsDir() {
+		return false, fmt.Errorf("%s: test suite path is not a directory: %s", name, testDir)
 	}
 	if version != "" {
 		fmt.Fprintf(os.Stderr, "→ %s add %s@%s\n", mgr.Name(), name, version)
