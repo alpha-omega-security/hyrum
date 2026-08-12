@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -60,18 +61,22 @@ func cmdCorpus(ctx context.Context, args []string) error {
 		return fmt.Errorf("no dependents: pass --dependent or --discover N")
 	}
 
+	var corpusErrs []error
 	for _, spec := range specs {
+		display := clone.RedactURL(spec)
 		url, ref := splitDependentSpec(spec)
-		fmt.Fprintf(os.Stderr, "▶ dependent %s\n", spec)
+		fmt.Fprintf(os.Stderr, "▶ dependent %s\n", display)
 		dir := filepath.Join(*work, "targets", slugify(url))
 		if err := clone.Ensure(ctx, clone.Retry{}, url, dir, ref, true); err != nil {
 			fmt.Fprintf(os.Stderr, "  clone: %v\n", err)
+			corpusErrs = append(corpusErrs, fmt.Errorf("%s: clone: %w", display, err))
 			continue
 		}
 		// corpus owns this clone (unlike gen's symlinked target), so agent
 		// directive files can be removed before the skill run reads it.
 		if n, err := harness.StripDirectives(dir); err != nil {
 			fmt.Fprintf(os.Stderr, "  strip: %v\n", err)
+			corpusErrs = append(corpusErrs, fmt.Errorf("%s: strip: %w", display, err))
 			continue
 		} else if n > 0 {
 			fmt.Fprintf(os.Stderr, "  stripped %d agent directive path(s)\n", n)
@@ -79,18 +84,21 @@ func cmdCorpus(ctx context.Context, args []string) error {
 		t, err := hyrum.Analyze(dir)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "  analyze: %v\n", err)
+			corpusErrs = append(corpusErrs, fmt.Errorf("%s: analyze: %w", display, err))
 			continue
 		}
 		d, ok := findDep(t, *upstream)
 		if !ok {
 			fmt.Fprintf(os.Stderr, "  %s does not use %s; skipping\n", url, *upstream)
+			corpusErrs = append(corpusErrs, fmt.Errorf("%s: does not use %s", display, *upstream))
 			continue
 		}
 		if err := p.genAll(ctx, t, []hyrum.Dep{d}); err != nil {
 			fmt.Fprintf(os.Stderr, "  %v\n", err)
+			corpusErrs = append(corpusErrs, fmt.Errorf("%s: generate: %w", display, err))
 		}
 	}
-	return nil
+	return errors.Join(corpusErrs...)
 }
 
 // discoverDependents queries ecosyste.ms via git-pkgs/dependents for the
