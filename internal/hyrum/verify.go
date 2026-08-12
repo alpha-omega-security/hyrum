@@ -78,8 +78,12 @@ func VerifyMatrix(ctx context.Context, mgr managers.Manager, cmd TestCommand, sc
 
 func verifyOne(ctx context.Context, mgr managers.Manager, tc TestCommand, scratch, depName, version string, files []string) VerifyResult {
 	res := VerifyResult{Version: version}
-	if r, err := mgr.Add(ctx, depName, managers.AddOptions{Version: version, Exact: true}); err != nil || !r.Success() {
-		res.Error = fmt.Sprintf("install %s@%s: %v %s", depName, version, err, strings.TrimSpace(r.Stderr))
+	if r, err := mgr.Add(ctx, depName, managers.AddOptions{Version: version, Exact: true}); err != nil || r == nil || !r.Success() {
+		stderr := ""
+		if r != nil {
+			stderr = strings.TrimSpace(r.Stderr)
+		}
+		res.Error = fmt.Sprintf("install %s@%s: %v %s", depName, version, err, stderr)
 		return res
 	}
 	argv := tc(".", files)

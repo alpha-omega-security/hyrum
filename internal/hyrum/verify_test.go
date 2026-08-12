@@ -1,9 +1,31 @@
 package hyrum
 
 import (
+	"context"
+	"errors"
 	"reflect"
+	"strings"
 	"testing"
+
+	"github.com/git-pkgs/managers"
 )
+
+type addErrorManager struct {
+	managers.Manager
+}
+
+func (addErrorManager) Name() string      { return "test" }
+func (addErrorManager) Ecosystem() string { return EcoNPM }
+func (addErrorManager) Add(context.Context, string, managers.AddOptions) (*managers.Result, error) {
+	return nil, errors.New("invalid package")
+}
+
+func TestVerifyOneHandlesAddErrorWithoutResult(t *testing.T) {
+	result := verifyOne(t.Context(), addErrorManager{}, nil, t.TempDir(), "example", "1.0.0", nil)
+	if !strings.Contains(result.Error, "invalid package") {
+		t.Fatalf("verifyOne error = %q", result.Error)
+	}
+}
 
 func TestParseTestOutputNode(t *testing.T) {
 	out := `✔ constructs and closes (1.0ms)

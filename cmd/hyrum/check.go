@@ -104,8 +104,12 @@ func checkOne(ctx context.Context, t *hyrum.Target, mgr managers.Manager, testsR
 	}
 	if version != "" {
 		fmt.Fprintf(os.Stderr, "→ %s add %s@%s\n", mgr.Name(), name, version)
-		if r, err := mgr.Add(ctx, name, managers.AddOptions{Version: version}); err != nil || !r.Success() {
-			fmt.Fprintf(os.Stderr, "  install failed: %v %s\n", err, r.Stderr)
+		if r, err := mgr.Add(ctx, name, managers.AddOptions{Version: version}); err != nil || r == nil || !r.Success() {
+			stderr := ""
+			if r != nil {
+				stderr = r.Stderr
+			}
+			fmt.Fprintf(os.Stderr, "  install failed: %v %s\n", err, stderr)
 			return false, nil
 		}
 	}
