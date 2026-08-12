@@ -58,6 +58,11 @@ type RunResult struct {
 
 const recoveredBackendError = "backend exited non-zero after writing fresh output"
 
+// RunOptions contains backend-neutral per-invocation settings.
+type RunOptions struct {
+	Model string
+}
+
 // Decode unmarshals the skill's output file into v.
 func (r *RunResult) Decode(v any) error {
 	return json.Unmarshal(r.Output, v)
@@ -68,11 +73,20 @@ func (r *RunResult) Decode(v any) error {
 // simple progress log; a caller wanting structured events can pass its own
 // emit via RunSkillWithEmit.
 func RunSkill(ctx context.Context, h harness.Harness, ws, name, outputFile string) (*RunResult, error) {
-	return RunSkillWithEmit(ctx, h, ws, name, outputFile, defaultEmit)
+	return RunSkillWithOptions(ctx, h, ws, name, outputFile, RunOptions{})
+}
+
+// RunSkillWithOptions is RunSkill with backend-neutral invocation settings.
+func RunSkillWithOptions(ctx context.Context, h harness.Harness, ws, name, outputFile string, opts RunOptions) (*RunResult, error) {
+	return runSkill(ctx, h, ws, name, outputFile, opts, defaultEmit)
 }
 
 // RunSkillWithEmit is RunSkill with a caller-provided event sink.
 func RunSkillWithEmit(ctx context.Context, h harness.Harness, ws, name, outputFile string, emit func(harness.Event)) (*RunResult, error) {
+	return runSkill(ctx, h, ws, name, outputFile, RunOptions{}, emit)
+}
+
+func runSkill(ctx context.Context, h harness.Harness, ws, name, outputFile string, opts RunOptions, emit func(harness.Event)) (*RunResult, error) {
 	skillDir, err := skills.Stage(h, ws, name)
 	if err != nil {
 		return nil, fmt.Errorf("stage skill: %w", err)
@@ -90,6 +104,7 @@ func RunSkillWithEmit(ctx context.Context, h harness.Harness, ws, name, outputFi
 		SkillName:    name,
 		OutputFile:   outputFile,
 		SystemPrompt: headlessSystemPrompt,
+		Model:        opts.Model,
 	}
 	outputPath, err := prepareOutput(ws, outputFile)
 	if err != nil {
@@ -99,9 +114,11 @@ func RunSkillWithEmit(ctx context.Context, h harness.Harness, ws, name, outputFi
 	// Backends that do not report a price (codex) still report token usage;
 	// fall back to the list-price estimate for the backend's default model so
 	// meta.json carries something better than zero.
-	model := ""
-	if defs := h.DefaultModels(); len(defs) > 0 {
-		model = defs[0].ID
+	model := opts.Model
+	if model == "" {
+		if defs := h.DefaultModels(); len(defs) > 0 {
+			model = defs[0].ID
+		}
 	}
 
 	res := &RunResult{}

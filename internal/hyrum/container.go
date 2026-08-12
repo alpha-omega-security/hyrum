@@ -21,15 +21,15 @@ const DefaultRunnerImage = "ghcr.io/alpha-omega-security/scrutineer-runner:lates
 // Runner runs one skill and returns its parsed output. HostRunner and
 // ContainerRunner both satisfy it so the pipeline can switch on a flag.
 type Runner interface {
-	RunSkill(ctx context.Context, h harness.Harness, ws, name, outputFile string) (*RunResult, error)
+	RunSkill(ctx context.Context, h harness.Harness, ws, name, outputFile string, opts RunOptions) (*RunResult, error)
 }
 
 // HostRunner runs the backend directly on the host via harness.Run. It is the
 // default and requires the backend binary on PATH.
 type HostRunner struct{}
 
-func (HostRunner) RunSkill(ctx context.Context, h harness.Harness, ws, name, out string) (*RunResult, error) {
-	return RunSkill(ctx, h, ws, name, out)
+func (HostRunner) RunSkill(ctx context.Context, h harness.Harness, ws, name, out string, opts RunOptions) (*RunResult, error) {
+	return RunSkillWithOptions(ctx, h, ws, name, out, opts)
 }
 
 // ContainerRunner runs the backend inside an ephemeral container with a fresh
@@ -50,7 +50,7 @@ type ContainerRunner struct {
 	Emit func(harness.Event)
 }
 
-func (r ContainerRunner) RunSkill(ctx context.Context, h harness.Harness, ws, name, outputFile string) (*RunResult, error) {
+func (r ContainerRunner) RunSkill(ctx context.Context, h harness.Harness, ws, name, outputFile string, opts RunOptions) (*RunResult, error) {
 	skillDir, err := skills.Stage(h, ws, name)
 	if err != nil {
 		return nil, fmt.Errorf("stage skill: %w", err)
@@ -86,6 +86,7 @@ func (r ContainerRunner) RunSkill(ctx context.Context, h harness.Harness, ws, na
 		SkillName:    name,
 		OutputFile:   outputFile,
 		SystemPrompt: headlessSystemPrompt,
+		Model:        opts.Model,
 	}
 
 	runtime := r.Runtime
@@ -108,9 +109,11 @@ func (r ContainerRunner) RunSkill(ctx context.Context, h harness.Harness, ws, na
 	cmd.Stdout = pw
 	cmd.Stderr = io.MultiWriter(pw, &stderr)
 
-	model := ""
-	if defs := h.DefaultModels(); len(defs) > 0 {
-		model = defs[0].ID
+	model := opts.Model
+	if model == "" {
+		if defs := h.DefaultModels(); len(defs) > 0 {
+			model = defs[0].ID
+		}
 	}
 	emit := r.Emit
 	if emit == nil {

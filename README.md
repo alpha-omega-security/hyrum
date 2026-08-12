@@ -136,6 +136,39 @@ For codex, `export CODEX_API_KEY=sk-...`. Copilot accepts
 `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN`. For opencode, use
 `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` depending on its configured provider.
 
+## Configuration
+
+`hyrum gen` automatically loads `hyrum.yaml` from the analyzed target
+repository's root when that file exists. It does not search parent
+directories. Use `--config <path>` to load a different file; a missing,
+unreadable, malformed, or invalid explicit file is an error, while an absent
+automatic file is not. Configuration is strict: unknown keys and incorrect
+value types are rejected.
+
+The supported settings are `backend`, `out`, `work`, per-skill `models`, and
+per-dependency `baseline` and `skip` values under `deps`. Explicit command-line
+flags take precedence over config, and config takes precedence over built-in
+defaults. Relative `out` paths are rooted at the target repository. For safety,
+`out` in an automatically discovered target configuration must remain inside
+that target; an explicitly supplied `--config` may select an external output
+path.
+
+An automatically discovered config cannot select `work`: that value is ignored
+unless the operator supplies the config with `--config`. `--work` is always
+honored. A relative `work` value from an explicit config is rooted at the
+directory containing that file; absolute paths and `~/...` are accepted.
+
+Dependency overrides may be keyed by manifest name or full purl; a purl entry
+wins for fields also set by a name entry. `skip: true` removes a dependency
+from default generation, but an explicit `--dep` includes it. `baseline`
+changes the version staged, verified, and recorded by Hyrum without modifying
+the target's manifest or lockfile.
+
+Model values are portable `mid`, `high`, or `max` tiers. Each selected backend
+maps the tier to a model through the harness API, so model selection applies
+to individual skills without backend-specific configuration. See
+[`hyrum.sample.yaml`](hyrum.sample.yaml) for the complete schema.
+
 ## Host and container modes
 
 By default the backend runs on the host, so its CLI (`claude`, `codex`, ...)
