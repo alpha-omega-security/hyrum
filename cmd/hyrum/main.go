@@ -60,16 +60,18 @@ func run() int {
 }
 
 func printUsage() {
-	fmt.Fprint(os.Stderr, `hyrum — generate and run Hyrum's tests
+	fmt.Fprint(os.Stderr, usageText)
+}
+
+const usageText = `hyrum: generate and run Hyrum's tests
 
 Usage:
-  hyrum surface <path> [--dep name] [--json]
-  hyrum gen     <path> [--dep name] [--out dir] [--backend claude]
-  hyrum check   [--dep purl@version]
-  hyrum corpus  <purl> [--dependents N]
+  hyrum surface [--dep name] [--json] [path]
+  hyrum gen     [--dep name] [--out dir] [--backend name] [--run] [path]
+  hyrum check   --dep name[@version] [--tests dir] [path]
+  hyrum corpus  --upstream purl --out dir [--dependent URL[@ref]] [--discover N]
 
-`)
-}
+`
 
 // stringList is a repeatable string flag.
 type stringList []string
