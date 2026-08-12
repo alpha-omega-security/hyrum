@@ -139,6 +139,9 @@ func (p *pipeline) genOne(ctx context.Context, t *hyrum.Target, idx *hyrum.Histo
 		return err
 	}
 	ws := filepath.Join(p.work, targetDir, d.Ecosystem, d.Name)
+	if err := prepareWorkspace(ws); err != nil {
+		return fmt.Errorf("prepare workspace: %w", err)
+	}
 	depDir, latest, err := stageContext(ctx, t, d, ws, p.rc)
 	if err != nil {
 		return fmt.Errorf("stage: %w", err)
@@ -222,6 +225,31 @@ func (p *pipeline) genOne(ctx context.Context, t *hyrum.Target, idx *hyrum.Histo
 		return err
 	}
 	fmt.Printf("%s ← %s: %d file(s) → %s ($%.4f)\n", d.Name, targetDir, len(written), outDir, totalCost)
+	return nil
+}
+
+var transientWorkspaceFiles = []string{
+	"dep-outline.md",
+	"git-log.txt",
+	"changelog.json",
+	"vulns.json",
+	"surface.json",
+	"breaks.json",
+	"tests.json",
+	"verify.json",
+	"verdict.json",
+	"schema.json",
+}
+
+func prepareWorkspace(ws string) error {
+	if err := os.MkdirAll(ws, 0o755); err != nil {
+		return err
+	}
+	for _, name := range transientWorkspaceFiles {
+		if err := os.Remove(filepath.Join(ws, name)); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove stale %s: %w", name, err)
+		}
+	}
 	return nil
 }
 

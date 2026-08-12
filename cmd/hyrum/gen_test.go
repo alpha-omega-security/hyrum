@@ -77,6 +77,35 @@ func TestGenAllReturnsDependencyFailures(t *testing.T) {
 	}
 }
 
+func TestPrepareWorkspaceRemovesTransientArtifacts(t *testing.T) {
+	ws := t.TempDir()
+	for _, name := range transientWorkspaceFiles {
+		if err := os.WriteFile(filepath.Join(ws, name), []byte("stale"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	depDir := filepath.Join(ws, "dep")
+	if err := os.Mkdir(depDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	keep := filepath.Join(depDir, "keep")
+	if err := os.WriteFile(keep, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := prepareWorkspace(ws); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range transientWorkspaceFiles {
+		if _, err := os.Stat(filepath.Join(ws, name)); !os.IsNotExist(err) {
+			t.Errorf("transient artifact %q remains: %v", name, err)
+		}
+	}
+	if _, err := os.Stat(keep); err != nil {
+		t.Fatalf("reusable dependency clone was removed: %v", err)
+	}
+}
+
 func newGitTarget(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
