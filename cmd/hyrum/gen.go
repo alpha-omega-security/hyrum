@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -115,12 +116,15 @@ func (p *pipeline) genAll(ctx context.Context, t *hyrum.Target, deps []hyrum.Dep
 	if err != nil {
 		return fmt.Errorf("history index: %w", err)
 	}
+	var genErrs []error
 	for _, d := range deps {
 		if err := p.genOne(ctx, t, idx, d); err != nil {
-			fmt.Fprintf(os.Stderr, "  %s: %v\n", d.Name, err)
+			depErr := fmt.Errorf("%s: %w", d.Name, err)
+			fmt.Fprintf(os.Stderr, "  %v\n", depErr)
+			genErrs = append(genErrs, depErr)
 		}
 	}
-	return nil
+	return errors.Join(genErrs...)
 }
 
 func (p *pipeline) genOne(ctx context.Context, t *hyrum.Target, idx *hyrum.HistoryIndex, d hyrum.Dep) error {

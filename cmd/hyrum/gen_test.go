@@ -3,7 +3,10 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/alpha-omega-security/harness"
@@ -57,6 +60,40 @@ func TestGenOneRejectsUnsafeDependencyPath(t *testing.T) {
 	if err := p.genOne(t.Context(), target, nil, dep); err == nil {
 		t.Fatal("genOne accepted a dependency name that escapes the work and output roots")
 	}
+}
+
+func TestGenAllReturnsDependencyFailures(t *testing.T) {
+	targetDir := newGitTarget(t)
+	target := &hyrum.Target{Path: targetDir, Report: &brief.Report{}}
+	p := &pipeline{}
+	deps := []hyrum.Dep{{Name: "../../escape", Ecosystem: hyrum.EcoNPM}}
+
+	err := p.genAll(t.Context(), target, deps)
+	if err == nil {
+		t.Fatal("genAll discarded a dependency generation failure")
+	}
+	if !strings.Contains(err.Error(), `../../escape: unsafe dependency name "../../escape"`) {
+		t.Fatalf("genAll error = %q", err)
+	}
+}
+
+func newGitTarget(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("fixture\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"init", "-q"}, {"add", "README.md"}, {"commit", "-q", "-m", "fixture"}} {
+		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=test@example.com",
+			"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=test@example.com",
+		)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+	}
+	return dir
 }
 
 type recoveredRunner struct {
