@@ -59,20 +59,29 @@ func cmdCheck(ctx context.Context, args []string) error {
 // managerHint returns the package-manager name to hand to managers.Detect so
 // its ranking (which prefers bun over npm for a bare package.json) does not
 // override what a lockfile or config already indicates. brief titles some
-// names ("Bun"); managers keys are lowercase.
+// names ("Bun"); managers keys are lowercase and occasionally use a
+// different identifier.
 func managerHint(t *hyrum.Target) string {
 	for _, pm := range t.Report.PackageManagers {
 		if pm.Lockfile == "" {
 			continue
 		}
 		if _, err := os.Stat(filepath.Join(t.Path, pm.Lockfile)); err == nil {
-			return strings.ToLower(pm.Name)
+			return managerName(pm.Name)
 		}
 	}
 	if len(t.Report.PackageManagers) > 0 {
-		return strings.ToLower(t.Report.PackageManagers[0].Name)
+		return managerName(t.Report.PackageManagers[0].Name)
 	}
 	return ""
+}
+
+func managerName(displayName string) string {
+	name := strings.ToLower(displayName)
+	if name == "go modules" {
+		return "gomod"
+	}
+	return name
 }
 
 // checkOne installs one dep spec and runs the tests generated for it. It
@@ -167,7 +176,7 @@ func detectManager(dir, hint string) (managers.Manager, error) {
 var ecosystemManager = map[string]string{
 	hyrum.EcoNPM:      "npm",
 	hyrum.EcoPyPI:     "pip",
-	hyrum.EcoGo:       "go",
+	hyrum.EcoGo:       "gomod",
 	hyrum.EcoGem:      "bundler",
 	hyrum.EcoCargo:    "cargo",
 	hyrum.EcoComposer: "composer",
