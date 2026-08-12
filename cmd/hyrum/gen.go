@@ -191,7 +191,7 @@ func (p *pipeline) genOne(ctx context.Context, t *hyrum.Target, idx *hyrum.Histo
 
 	outRel := filepath.Join(d.Name, "from_"+targetDir)
 	outDir := filepath.Join(p.outRoot, outRel)
-	written, err := hyrum.WriteFilesUnder(p.outRoot, outRel, gen.Files)
+	written, err := hyrum.ReplaceFilesUnder(p.outRoot, outRel, gen.Files)
 	if err != nil {
 		return fmt.Errorf("write: %w", err)
 	}

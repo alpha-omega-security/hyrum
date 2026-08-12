@@ -211,9 +211,31 @@ func WriteFiles(root string, files []GeneratedFile) ([]string, error) {
 // WriteFilesUnder writes each generated file under dir within root, refusing
 // paths and symlinks that escape root. It returns the list of written paths.
 func WriteFilesUnder(root, dir string, files []GeneratedFile) ([]string, error) {
+	return writeFilesUnder(root, dir, files, false)
+}
+
+// ReplaceFilesUnder removes dir within root after validating all generated
+// paths, then writes the current files. This prevents files omitted by a later
+// generation from remaining in the suite.
+func ReplaceFilesUnder(root, dir string, files []GeneratedFile) ([]string, error) {
+	return writeFilesUnder(root, dir, files, true)
+}
+
+func writeFilesUnder(root, dir string, files []GeneratedFile, replace bool) ([]string, error) {
 	cleanDir := filepath.Clean(dir)
 	if !filepath.IsLocal(cleanDir) {
 		return nil, fmt.Errorf("refusing output directory %q", dir)
+	}
+	if replace && cleanDir == "." {
+		return nil, fmt.Errorf("refusing to replace output root")
+	}
+	rels := make([]string, len(files))
+	for i, f := range files {
+		clean := filepath.Clean(f.Path)
+		if clean == "." || strings.HasPrefix(clean, "..") || filepath.IsAbs(clean) {
+			return nil, fmt.Errorf("refusing path %q", f.Path)
+		}
+		rels[i] = filepath.Join(cleanDir, clean)
 	}
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return nil, err
@@ -223,17 +245,18 @@ func WriteFilesUnder(root, dir string, files []GeneratedFile) ([]string, error) 
 		return nil, err
 	}
 	defer func() { _ = outputRoot.Close() }()
+	if replace {
+		if err := outputRoot.RemoveAll(cleanDir); err != nil {
+			return nil, err
+		}
+	}
 	if err := outputRoot.MkdirAll(cleanDir, 0o755); err != nil {
 		return nil, err
 	}
 
 	var written []string
-	for _, f := range files {
-		clean := filepath.Clean(f.Path)
-		if clean == "." || strings.HasPrefix(clean, "..") || filepath.IsAbs(clean) {
-			return written, fmt.Errorf("refusing path %q", f.Path)
-		}
-		rel := filepath.Join(cleanDir, clean)
+	for i, f := range files {
+		rel := rels[i]
 		if err := outputRoot.MkdirAll(filepath.Dir(rel), 0o755); err != nil {
 			return written, err
 		}

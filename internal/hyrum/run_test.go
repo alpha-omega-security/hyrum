@@ -347,3 +347,72 @@ func TestWriteFilesUnderWritesNestedOutput(t *testing.T) {
 		t.Fatalf("body = %q", body)
 	}
 }
+
+func TestReplaceFilesUnderRemovesObsoleteFiles(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join("dep", "from_target")
+	if _, err := WriteFilesUnder(root, dir, []GeneratedFile{
+		{Path: "obsolete.test.js", Content: "old"},
+		{Path: "kept.test.js", Content: "old"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := ReplaceFilesUnder(root, dir, []GeneratedFile{{Path: "kept.test.js", Content: "new"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, dir, "obsolete.test.js")); !os.IsNotExist(err) {
+		t.Fatalf("obsolete file remains: %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(root, dir, "kept.test.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "new" {
+		t.Fatalf("kept file = %q, want new", got)
+	}
+}
+
+func TestReplaceFilesUnderValidatesBeforeRemovingSuite(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join("dep", "from_target")
+	if _, err := WriteFilesUnder(root, dir, []GeneratedFile{{Path: "existing.test.js", Content: "old"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := ReplaceFilesUnder(root, dir, []GeneratedFile{{Path: "../escape", Content: "bad"}}); err == nil {
+		t.Fatal("ReplaceFilesUnder accepted an escaping path")
+	}
+	if _, err := os.Stat(filepath.Join(root, dir, "existing.test.js")); err != nil {
+		t.Fatalf("existing suite was removed before validation: %v", err)
+	}
+}
+
+func TestReplaceFilesUnderReplacesSymlinkWithoutFollowingIt(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	dir := filepath.Join("dep", "from_target")
+	if err := os.Mkdir(filepath.Join(root, "dep"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outside, "keep"), []byte("outside"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, dir)); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := ReplaceFilesUnder(root, dir, []GeneratedFile{{Path: "current.test.js", Content: "new"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, dir, "current.test.js")); err != nil {
+		t.Fatalf("replacement suite was not written: %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(outside, "keep"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "outside" {
+		t.Fatalf("outside file changed to %q", got)
+	}
+}
