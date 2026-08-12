@@ -67,7 +67,7 @@ const usageText = `hyrum: generate and run Hyrum's tests
 
 Usage:
   hyrum surface [--dep name] [--json] [path]
-  hyrum gen     [--dep name] [--out dir] [--backend name] [--run] [path]
+  hyrum gen     [--config file] [--dep name] [--out dir] [--work dir] [--backend name] [--run] [path]
   hyrum check   --dep name[@version] [--tests dir] [path]
   hyrum corpus  --upstream purl --out dir [--dependent URL[@ref]] [--discover N]
 

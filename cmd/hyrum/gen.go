@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/alpha-omega-security/harness"
+	hyrumconfig "github.com/alpha-omega-security/hyrum/internal/config"
 	"github.com/alpha-omega-security/hyrum/internal/hyrum"
 	"github.com/alpha-omega-security/hyrum/internal/hyrum/usage"
 	"github.com/git-pkgs/clone"
@@ -32,22 +34,47 @@ var skillSteps = []struct {
 	{"hyrum-generate", "tests.json", true},
 }
 
+const (
+	defaultGenBackend = "claude"
+	defaultGenOut     = "tests/hyrum"
+)
+
+type genOptions struct {
+	backend string
+	out     string
+	work    string
+	models  map[string]string
+}
+
+func defaultGenOptions() genOptions {
+	return genOptions{
+		backend: defaultGenBackend,
+		out:     defaultGenOut,
+		work:    filepath.Join(os.TempDir(), "hyrum"),
+	}
+}
+
 // cmdGen runs the generation pipeline for one or more dependencies: stage the
 // context bundle, gather history inputs, then run the usage/history/generate
 // skills in sequence. Without --run it stops after staging so the workspace
 // can be inspected without invoking a backend.
 func cmdGen(ctx context.Context, args []string) error {
 	fs := newFlags("gen")
+	defaults := defaultGenOptions()
 	var deps stringList
 	fs.Var(&deps, "dep", "dependency name to generate for (repeatable); default: all direct runtime deps")
-	out := fs.String("out", "tests/hyrum", "output root for generated tests")
-	work := fs.String("work", filepath.Join(os.TempDir(), "hyrum"), "working directory for clones and skill workspaces")
-	backend := fs.String("backend", "claude", "harness backend: "+harness.Names())
+	configPath := fs.String("config", "", "configuration file (default: <target>/hyrum.yaml when present)")
+	out := fs.String("out", defaults.out, "output root for generated tests")
+	work := fs.String("work", defaults.work, "working directory for clones and skill workspaces")
+	backend := fs.String("backend", defaults.backend, "harness backend: "+harness.Names())
 	run := fs.Bool("run", false, "actually invoke the backend (otherwise stage only)")
 	container := fs.String("container", "", "run the backend in a container using this image (\"default\" for "+hyrum.DefaultRunnerImage+")")
 	verify := fs.Bool("verify", false, "after generating, run the tests against the baseline and latest dep versions and record results in meta.json")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if fs.NArg() > 1 {
+		return fmt.Errorf("unexpected arguments after <path>: %v (flags must precede <path>)", fs.Args()[1:])
 	}
 	path := "."
 	if fs.NArg() > 0 {
@@ -59,19 +86,162 @@ func cmdGen(ctx context.Context, args []string) error {
 		return err
 	}
 
-	selected := selectDeps(t, deps)
-	if len(selected) == 0 {
-		return fmt.Errorf("no dependencies selected (target has %d direct deps across %v)", len(t.Deps), t.Ecosystems())
+	set := visitedFlags(fs)
+	if set["config"] && *configPath == "" {
+		return fmt.Errorf("--config requires a non-empty path")
 	}
-
-	h, err := harness.ByName(*backend)
+	cfg, cfgSource, err := hyrumconfig.Load(t.Path, *configPath)
+	if err != nil {
+		return err
+	}
+	resolved, err := resolveGenOptions(t.Path, cfgSource, set["config"], cfg, genOptions{
+		backend: *backend,
+		out:     *out,
+		work:    *work,
+	}, set)
 	if err != nil {
 		return err
 	}
 
-	p := newPipeline(h, *work, outRoot(t.Path, *out), *run, resolveContainer(*container))
+	selected := selectGenDeps(t, deps, cfg.Deps)
+	if len(selected) == 0 {
+		return fmt.Errorf("no dependencies selected (target has %d direct deps across %v)", len(t.Deps), t.Ecosystems())
+	}
+
+	h, err := harness.ByName(resolved.backend)
+	if err != nil {
+		return err
+	}
+	models, err := resolveModels(h, resolved.models)
+	if err != nil {
+		return err
+	}
+
+	p := newPipeline(h, resolved.work, resolved.out, *run, resolveContainer(*container))
+	p.models = models
 	p.verify = *verify
 	return p.genAll(ctx, t, selected)
+}
+
+// resolveGenOptions applies built-in defaults, then config values, then only
+// the flags the user explicitly supplied. Its returned out path is rooted at
+// the target. Work from an auto-discovered config is ignored; an explicitly
+// selected config resolves work relative to the config directory.
+func resolveGenOptions(targetRoot, configPath string, explicitConfig bool, cfg hyrumconfig.File, cli genOptions, set map[string]bool) (genOptions, error) {
+	resolved := defaultGenOptions()
+	resolved.out = outRoot(targetRoot, resolved.out)
+
+	if cfg.Backend != nil {
+		resolved.backend = *cfg.Backend
+	}
+	if cfg.Out != nil {
+		expanded, err := hyrumconfig.ExpandUser(*cfg.Out)
+		if err != nil {
+			return genOptions{}, fmt.Errorf("out: %w", err)
+		}
+		resolved.out = outRoot(targetRoot, expanded)
+	}
+	if explicitConfig && cfg.Work != nil {
+		work, err := hyrumconfig.ResolvePath(configPath, *cfg.Work)
+		if err != nil {
+			return genOptions{}, fmt.Errorf("work: %w", err)
+		}
+		resolved.work = work
+	}
+	resolved.models = cfg.Models
+
+	if set["backend"] {
+		resolved.backend = cli.backend
+	}
+	if set["out"] {
+		expanded, err := hyrumconfig.ExpandUser(cli.out)
+		if err != nil {
+			return genOptions{}, fmt.Errorf("out: %w", err)
+		}
+		resolved.out = outRoot(targetRoot, expanded)
+	}
+	if set["work"] {
+		expanded, err := hyrumconfig.ExpandUser(cli.work)
+		if err != nil {
+			return genOptions{}, fmt.Errorf("work: %w", err)
+		}
+		resolved.work = expanded
+	}
+	trustedExternalOut := set["out"] || (explicitConfig && cfg.Out != nil)
+	if !trustedExternalOut && !pathWithinResolved(targetRoot, resolved.out) {
+		return genOptions{}, fmt.Errorf("out: automatic output must resolve inside target %q (use --out or explicit --config to trust an external output path)", targetRoot)
+	}
+	return resolved, nil
+}
+
+func pathWithinResolved(base, path string) bool {
+	resolvedBase, err := resolveExistingPath(base)
+	if err != nil {
+		return false
+	}
+	resolvedPath, err := resolveExistingPath(path)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(resolvedBase, resolvedPath)
+	if err != nil || filepath.IsAbs(rel) {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// resolveExistingPath resolves every existing symlink prefix of path, then
+// appends any not-yet-created suffix. Callers use it before creating output
+// paths so a symlink already present in an untrusted target cannot redirect a
+// nominally contained path elsewhere on the host.
+func resolveExistingPath(path string) (string, error) {
+	current, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	var missing []string
+	for {
+		resolved, evalErr := filepath.EvalSymlinks(current)
+		if evalErr == nil {
+			for i := len(missing) - 1; i >= 0; i-- {
+				resolved = filepath.Join(resolved, missing[i])
+			}
+			return filepath.Clean(resolved), nil
+		}
+		if !errors.Is(evalErr, os.ErrNotExist) {
+			return "", evalErr
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return "", evalErr
+		}
+		missing = append(missing, filepath.Base(current))
+		current = parent
+	}
+}
+
+func visitedFlags(fs *flag.FlagSet) map[string]bool {
+	set := make(map[string]bool)
+	fs.Visit(func(f *flag.Flag) {
+		set[f.Name] = true
+	})
+	return set
+}
+
+func resolveModels(h harness.Harness, tiers map[string]string) (map[string]string, error) {
+	models := make(map[string]string, len(tiers))
+	for skill, tier := range tiers {
+		for _, candidate := range h.DefaultModels() {
+			if candidate.Tier == tier {
+				models[skill] = candidate.ID
+				break
+			}
+		}
+		if models[skill] == "" {
+			return nil, fmt.Errorf("models.%s: backend %s has no %q model tier", skill, harness.Name(h), tier)
+		}
+	}
+	return models, nil
 }
 
 // pipeline holds the shared configuration for running the stage → history →
@@ -84,6 +254,9 @@ type pipeline struct {
 	work    string
 	outRoot string
 	run     bool
+	// models maps skill names to backend-owned model IDs resolved from the
+	// portable mid/high/max tiers in hyrum.yaml.
+	models map[string]string
 	// containerImage non-empty means the runner is a ContainerRunner and each
 	// genOne call sets its TargetPath to the analysed target so /work/target
 	// is a read-only bind mount instead of a host symlink.
@@ -139,6 +312,14 @@ func (p *pipeline) genOne(ctx context.Context, t *hyrum.Target, idx *hyrum.Histo
 		return err
 	}
 	ws := filepath.Join(p.work, targetDir, d.Ecosystem, d.Name)
+	if !pathWithinResolved(p.work, ws) {
+		return fmt.Errorf("dependency %q resolves outside work root %q", d.Name, p.work)
+	}
+	outRel := filepath.Join(d.Name, "from_"+targetDir)
+	outDir := filepath.Join(p.outRoot, outRel)
+	if !pathWithinResolved(p.outRoot, outDir) {
+		return fmt.Errorf("dependency %q resolves outside output root %q", d.Name, p.outRoot)
+	}
 	if err := prepareWorkspace(ws); err != nil {
 		return fmt.Errorf("prepare workspace: %w", err)
 	}
@@ -151,7 +332,10 @@ func (p *pipeline) genOne(ctx context.Context, t *hyrum.Target, idx *hyrum.Histo
 	}
 	if !p.run {
 		last := skillSteps[len(skillSteps)-1]
-		job := harness.Job{Workspace: ws, SrcDir: "target", SkillName: last.name, OutputFile: last.out}
+		job := harness.Job{
+			Workspace: ws, SrcDir: "target", SkillName: last.name,
+			OutputFile: last.out, Model: p.models[last.name],
+		}
 		fmt.Printf("staged %s: %s %v\n", d.Name, p.h.Binary(), p.h.Args(job))
 		return nil
 	}
@@ -161,49 +345,20 @@ func (p *pipeline) genOne(ctx context.Context, t *hyrum.Target, idx *hyrum.Histo
 	if runner == nil {
 		runner = hyrum.ContainerRunner{Image: p.containerImage, TargetPath: t.Path}
 	}
-	var res *hyrum.RunResult
-	var totalCost float64
-	var recoveredSteps []string
-	for _, s := range skillSteps {
-		fmt.Fprintf(os.Stderr, "  [%s]\n", s.name)
-		r, err := runner.RunSkill(ctx, p.h, ws, s.name, s.out)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "  %s/%s: %v\n", d.Name, s.name, err)
-			if s.required {
-				return err
-			}
-			continue
-		}
-		if r.BackendError != "" {
-			fmt.Fprintf(os.Stderr, "  ! %s/%s: %s\n", d.Name, s.name, r.BackendError)
-			recoveredSteps = append(recoveredSteps, s.name)
-		}
-		totalCost += r.CostUSD
-		res = r
-	}
-	if res == nil {
-		return fmt.Errorf("generate produced no output")
+	res, totalCost, recoveredSteps, err := p.runGenerateSkills(ctx, runner, ws, d.Name)
+	if err != nil {
+		return err
 	}
 	var gen hyrum.GenerateResult
 	if err := res.Decode(&gen); err != nil {
 		return fmt.Errorf("decode tests.json: %w", err)
 	}
 
-	outRel := filepath.Join(d.Name, "from_"+targetDir)
-	outDir := filepath.Join(p.outRoot, outRel)
 	written, err := hyrum.ReplaceFilesUnder(p.outRoot, outRel, gen.Files)
 	if err != nil {
 		return fmt.Errorf("write: %w", err)
 	}
-	meta := map[string]any{
-		"purl":       d.PURL,
-		"ecosystem":  d.Ecosystem,
-		"baseline":   d.Version,
-		"target":     targetDir,
-		"session_id": res.SessionID,
-		"cost_usd":   totalCost,
-		"notes":      gen.Notes,
-	}
+	meta := generationMeta(targetDir, d, res, gen, totalCost)
 	if p.verify {
 		verify := p.runVerify(ctx, ws, d, latest, gen.Files)
 		meta["verify"] = verify
@@ -261,6 +416,45 @@ func addBackendRecoveries(meta map[string]any, steps []string) {
 	meta["recovered_steps"] = steps
 }
 
+func (p *pipeline) runGenerateSkills(ctx context.Context, runner hyrum.Runner, ws, depName string) (*hyrum.RunResult, float64, []string, error) {
+	var res *hyrum.RunResult
+	var totalCost float64
+	var recoveredSteps []string
+	for _, s := range skillSteps {
+		fmt.Fprintf(os.Stderr, "  [%s]\n", s.name)
+		r, err := runner.RunSkill(ctx, p.h, ws, s.name, s.out, hyrum.RunOptions{Model: p.models[s.name]})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "  %s/%s: %v\n", depName, s.name, err)
+			if s.required {
+				return nil, totalCost, recoveredSteps, err
+			}
+			continue
+		}
+		if r.BackendError != "" {
+			fmt.Fprintf(os.Stderr, "  ! %s/%s: %s\n", depName, s.name, r.BackendError)
+			recoveredSteps = append(recoveredSteps, s.name)
+		}
+		totalCost += r.CostUSD
+		res = r
+	}
+	if res == nil {
+		return nil, totalCost, recoveredSteps, fmt.Errorf("generate produced no output")
+	}
+	return res, totalCost, recoveredSteps, nil
+}
+
+func generationMeta(targetDir string, d hyrum.Dep, res *hyrum.RunResult, gen hyrum.GenerateResult, totalCost float64) map[string]any {
+	return map[string]any{
+		"purl":       d.PURL,
+		"ecosystem":  d.Ecosystem,
+		"baseline":   d.Version,
+		"target":     targetDir,
+		"session_id": res.SessionID,
+		"cost_usd":   totalCost,
+		"notes":      gen.Notes,
+	}
+}
+
 // runValidate stages the verify results and runs the hyrum-validate skill to
 // classify each latest-version failure and flag weak assertions. It returns
 // nil when there is nothing to validate (verify errored or ran no tests).
@@ -272,7 +466,7 @@ func (p *pipeline) runValidate(ctx context.Context, runner hyrum.Runner, ws stri
 		return nil, 0, "", err
 	}
 	fmt.Fprintf(os.Stderr, "  [hyrum-validate]\n")
-	r, err := runner.RunSkill(ctx, p.h, ws, "hyrum-validate", "verdict.json")
+	r, err := runner.RunSkill(ctx, p.h, ws, "hyrum-validate", "verdict.json", hyrum.RunOptions{Model: p.models["hyrum-validate"]})
 	if err != nil {
 		return nil, 0, "", err
 	}
@@ -561,6 +755,33 @@ func selectDeps(t *hyrum.Target, names stringList) []hyrum.Dep {
 		if d, ok := findDep(t, n); ok {
 			out = append(out, d)
 		}
+	}
+	return out
+}
+
+// selectGenDeps applies dependency configuration to copies of the analyzed
+// dependencies. Purl-specific values override name-specific values. Configured
+// skips affect default generation only; explicit --dep selections always win.
+func selectGenDeps(t *hyrum.Target, names stringList, overrides map[string]hyrumconfig.Dependency) []hyrum.Dep {
+	selected := selectDeps(t, names)
+	out := make([]hyrum.Dep, 0, len(selected))
+	for _, dep := range selected {
+		override := overrides[dep.Name]
+		if byPURL, ok := overrides[dep.PURL]; ok {
+			if byPURL.Baseline != nil {
+				override.Baseline = byPURL.Baseline
+			}
+			if byPURL.Skip != nil {
+				override.Skip = byPURL.Skip
+			}
+		}
+		if len(names) == 0 && override.Skip != nil && *override.Skip {
+			continue
+		}
+		if override.Baseline != nil {
+			dep.Version = *override.Baseline
+		}
+		out = append(out, dep)
 	}
 	return out
 }

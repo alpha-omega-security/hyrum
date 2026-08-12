@@ -26,6 +26,16 @@ type shHarness struct {
 	block   bool
 }
 
+type recordingHarness struct {
+	shHarness
+	model string
+}
+
+func (h *recordingHarness) Args(j harness.Job) []string {
+	h.model = j.Model
+	return h.shHarness.Args(j)
+}
+
 func (h shHarness) Binary() string { return "/bin/sh" }
 
 func (h shHarness) Args(j harness.Job) []string {
@@ -87,6 +97,17 @@ func TestRunSkillWritesFiles(t *testing.T) {
 	b, _ := os.ReadFile(written[0])
 	if string(b) != "// generated\n" {
 		t.Errorf("file body = %q", b)
+	}
+}
+
+func TestRunSkillPassesConfiguredModel(t *testing.T) {
+	ws := t.TempDir()
+	h := &recordingHarness{shHarness: shHarness{payload: `{"files":[]}`}}
+	if _, err := RunSkillWithOptions(context.Background(), h, ws, "hyrum-generate", "tests.json", RunOptions{Model: "claude-opus-4-6"}); err != nil {
+		t.Fatalf("RunSkillWithOptions: %v", err)
+	}
+	if h.model != "claude-opus-4-6" {
+		t.Fatalf("model = %q", h.model)
 	}
 }
 

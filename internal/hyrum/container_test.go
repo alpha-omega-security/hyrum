@@ -70,7 +70,7 @@ exit 1
 	}
 
 	runner := ContainerRunner{Runtime: runtime, Image: "test-image"}
-	res, err := runner.RunSkill(context.Background(), shHarness{}, ws, "hyrum-generate", "tests.json")
+	res, err := runner.RunSkill(context.Background(), shHarness{}, ws, "hyrum-generate", "tests.json", RunOptions{})
 	if err != nil {
 		t.Fatalf("fresh valid output should survive container failure: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestContainerRunnerBackendFailureDoesNotReuseStaleOutput(t *testing.T) {
 	}
 
 	runner := ContainerRunner{Runtime: runtime, Image: "test-image"}
-	if _, err := runner.RunSkill(context.Background(), shHarness{}, ws, "hyrum-generate", "tests.json"); err == nil {
+	if _, err := runner.RunSkill(context.Background(), shHarness{}, ws, "hyrum-generate", "tests.json", RunOptions{}); err == nil {
 		t.Fatal("want error rather than stale container output")
 	}
 	if _, err := os.Stat(outputPath); !os.IsNotExist(err) {
@@ -123,7 +123,7 @@ exit 1
 	}
 
 	runner := ContainerRunner{Runtime: runtime, Image: "test-image"}
-	res, err := runner.RunSkill(context.Background(), shHarness{}, ws, "hyrum-generate", "tests.json")
+	res, err := runner.RunSkill(context.Background(), shHarness{}, ws, "hyrum-generate", "tests.json", RunOptions{})
 	if err != nil {
 		t.Fatalf("fresh valid output should survive container failure: %v", err)
 	}
@@ -151,9 +151,22 @@ exit 1
 	}
 
 	runner := ContainerRunner{Runtime: runtime, Image: "test-image"}
-	_, err := runner.RunSkill(context.Background(), shHarness{}, ws, "hyrum-generate", "tests.json")
+	_, err := runner.RunSkill(context.Background(), shHarness{}, ws, "hyrum-generate", "tests.json", RunOptions{})
 	var accountErr *harness.AccountError
 	if !errors.As(err, &accountErr) {
 		t.Fatalf("want typed account error, got %v", err)
+	}
+}
+
+func TestContainerRunnerPassesConfiguredModel(t *testing.T) {
+	ws := t.TempDir()
+	h := &recordingHarness{shHarness: shHarness{payload: `{"files":[]}`}}
+	r := ContainerRunner{Runtime: filepath.Join(t.TempDir(), "missing-runtime")}
+	_, err := r.RunSkill(context.Background(), h, ws, "hyrum-generate", "tests.json", RunOptions{Model: "claude-opus-4-6"})
+	if err == nil {
+		t.Fatal("RunSkill succeeded with missing runtime")
+	}
+	if h.model != "claude-opus-4-6" {
+		t.Fatalf("model = %q", h.model)
 	}
 }

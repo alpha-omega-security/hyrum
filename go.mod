@@ -16,6 +16,7 @@ require (
 	github.com/git-pkgs/registries v0.6.4
 	github.com/git-pkgs/vers v0.3.0
 	github.com/git-pkgs/vulns v0.2.1
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -39,5 +40,4 @@ require (
 	github.com/package-url/packageurl-go v0.1.6 // indirect
 	github.com/pandatix/go-cvss v0.6.2 // indirect
 	github.com/rogpeppe/go-internal v1.16.0 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

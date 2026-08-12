@@ -51,7 +51,9 @@ Everything the model steps read is potentially adversarial:
 - The target repository. Trusted only when it is the operator's own code.
   Untrusted for every `corpus` clone (from `--dependent <url>` or
   `--discover N`) and for `gen <local-path>` when the path is a checkout of a
-  third-party project.
+  third-party project. This includes an automatically discovered
+  `<target>/hyrum.yaml`; it is configuration supplied by the target, not by
+  the operator.
 - The dependency's source repository. Cloned from a URL returned by the
   package registry, which any registry account holder can set to anything.
 - Registry metadata (homepage, description, latest version) written into
@@ -162,6 +164,18 @@ enabled, and the same caution applies.
 `WriteFilesUnder` rejects any `path` that is absolute, empty, or contains `..`
 as a path element, then writes it through an `os.Root` opened at `--out`.
 Final and intermediate symlinks cannot take the write outside that root.
+
+An automatically discovered `hyrum.yaml` may configure `out`, but Hyrum
+requires that value and its existing symlink prefixes to resolve inside the
+target. External output paths require an operator-supplied `--config`, making
+that trust decision explicit. Hyrum ignores `work` from an automatically
+discovered config; an external work root requires an operator-supplied
+`--work` or explicit `--config`. Relative values in an explicit config use its
+directory, and absolute or `~` values are honored. Dependency-derived
+workspace paths are confined inside that selected work root, and output paths
+are confined inside their selected output root. Symlinks created or replaced
+after validation remain a time-of-check/time-of-use residual; in container
+mode the target mount is read-only during generation.
 
 ### T4: generated tests execute on the host during --verify (medium; residual)
 
