@@ -312,6 +312,13 @@ func TestPathWithinResolved(t *testing.T) {
 	if pathWithinResolved(root, filepath.Join(root, "link", "child")) {
 		t.Fatal("symlinked child should escape root")
 	}
+	danglingTarget := filepath.Join(t.TempDir(), "created-later")
+	if err := os.Symlink(danglingTarget, filepath.Join(root, "dangling")); err != nil {
+		t.Fatal(err)
+	}
+	if pathWithinResolved(root, filepath.Join(root, "dangling", "child")) {
+		t.Fatal("dangling symlink should fail closed")
+	}
 }
 
 func TestGenOneRejectsResolvedPathEscapes(t *testing.T) {

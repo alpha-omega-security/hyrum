@@ -211,6 +211,16 @@ func resolveExistingPath(path string) (string, error) {
 		if !errors.Is(evalErr, os.ErrNotExist) {
 			return "", evalErr
 		}
+		info, lstatErr := os.Lstat(current)
+		if lstatErr == nil {
+			if info.Mode()&os.ModeSymlink != 0 {
+				return "", fmt.Errorf("resolve symlink %q: %w", current, evalErr)
+			}
+			return "", evalErr
+		}
+		if !errors.Is(lstatErr, os.ErrNotExist) {
+			return "", lstatErr
+		}
 		parent := filepath.Dir(current)
 		if parent == current {
 			return "", evalErr
