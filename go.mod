@@ -6,18 +6,18 @@ toolchain go1.26.6
 
 require (
 	github.com/alpha-omega-security/harness v0.1.6
-	github.com/git-pkgs/brief v0.9.4
+	github.com/git-pkgs/brief v0.10.0
 	github.com/git-pkgs/changelog v0.2.0
 	github.com/git-pkgs/clone v0.2.1
-	github.com/git-pkgs/dependents v0.0.0-20260810185351-ddfe65bb8fe8
+	github.com/git-pkgs/dependents v0.1.0
 	github.com/git-pkgs/enrichment v0.6.5
 	github.com/git-pkgs/managers v0.10.1
-	github.com/git-pkgs/outline v0.2.1-0.20260811111026-a47560753483
-	github.com/git-pkgs/provides v0.1.1-0.20260811114406-29fb3d0f91d0
-	github.com/git-pkgs/purl v0.1.15
-	github.com/git-pkgs/registries v0.6.4
-	github.com/git-pkgs/vers v0.3.0
-	github.com/git-pkgs/vulns v0.2.1
+	github.com/git-pkgs/outline v0.2.1
+	github.com/git-pkgs/provides v0.2.0
+	github.com/git-pkgs/purl v0.1.16
+	github.com/git-pkgs/registries v0.7.0
+	github.com/git-pkgs/vers v0.3.1
+	github.com/git-pkgs/vulns v0.2.2
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -30,15 +30,15 @@ require (
 	github.com/git-pkgs/gitignore v1.2.0 // indirect
 	github.com/git-pkgs/licensecheck v0.4.1 // indirect
 	github.com/git-pkgs/magic v0.2.0 // indirect
-	github.com/git-pkgs/manifests v0.7.2-0.20260810153511-44903226fd2c // indirect
+	github.com/git-pkgs/manifests v0.8.0 // indirect
 	github.com/git-pkgs/packageurl-go v0.3.1 // indirect
-	github.com/git-pkgs/pom v0.1.5 // indirect
-	github.com/git-pkgs/spdx v0.3.0 // indirect
+	github.com/git-pkgs/pom v0.1.6 // indirect
+	github.com/git-pkgs/spdx v0.3.1 // indirect
 	github.com/github/go-spdx/v2 v2.7.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/oapi-codegen/nullable v1.2.0 // indirect
 	github.com/oapi-codegen/runtime v1.6.0 // indirect
-	github.com/odvcencio/gotreesitter v0.48.0 // indirect
+	github.com/odvcencio/gotreesitter v0.49.0 // indirect
 	github.com/package-url/packageurl-go v0.1.6 // indirect
 	github.com/pandatix/go-cvss v0.6.2 // indirect
 	github.com/rogpeppe/go-internal v1.16.0 // indirect
