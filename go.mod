@@ -2,6 +2,8 @@ module github.com/alpha-omega-security/hyrum
 
 go 1.26
 
+toolchain go1.26.6
+
 require (
 	github.com/alpha-omega-security/harness v0.1.6
 	github.com/git-pkgs/brief v0.9.4
