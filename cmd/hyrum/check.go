@@ -144,7 +144,7 @@ func checkOne(ctx context.Context, t *hyrum.Target, mgr managers.Manager, testsR
 var testRunners = map[string]func(dir string, files []string) []string{
 	hyrum.EcoNPM:  func(_ string, files []string) []string { return append([]string{"node", "--test"}, files...) },
 	hyrum.EcoPyPI: func(dir string, _ []string) []string { return []string{"python3", "-m", "pytest", "-q", dir} },
-	hyrum.EcoGo:   func(dir string, _ []string) []string { return []string{"go", "test", "./" + dir + "/..."} },
+	hyrum.EcoGo:   func(dir string, _ []string) []string { return []string{"go", "test", "-v", "./" + dir + "/..."} },
 }
 
 func runTests(ctx context.Context, targetRoot, testDir, ecosystem string) (ok bool, output string, err error) {
