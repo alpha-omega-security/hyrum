@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -12,6 +13,17 @@ import (
 	"github.com/git-pkgs/brief"
 	"github.com/git-pkgs/managers"
 )
+
+func TestGoTestRunnerVerbose(t *testing.T) {
+	// parseTestOutput counts Go results by matching "^--- PASS:" and
+	// "^--- FAIL:" lines, which go test emits only under -v. Without it a
+	// passing package prints only "ok <pkg>" and verify reports 0 pass/0 fail.
+	argv := testRunners[hyrum.EcoGo](".", nil)
+	joined := strings.Join(argv, " ")
+	if !slices.Contains(argv, "-v") {
+		t.Fatalf("go test runner argv %q must include -v so parseTestOutput can count results", joined)
+	}
+}
 
 func TestSplitDepSpec(t *testing.T) {
 	cases := []struct{ in, name, ver string }{
