@@ -350,7 +350,7 @@ func (p *pipeline) genOne(ctx context.Context, t *hyrum.Target, idx *hyrum.Histo
 	if err := prepareWorkspace(ws); err != nil {
 		return fmt.Errorf("prepare workspace: %w", err)
 	}
-	depDir, latest, err := stageContext(ctx, t, d, ws, p.rc)
+	depDir, latest, err := stageContext(ctx, t, targetDir, d, ws, p.rc)
 	if err != nil {
 		return fmt.Errorf("stage: %w", err)
 	}
@@ -360,7 +360,7 @@ func (p *pipeline) genOne(ctx context.Context, t *hyrum.Target, idx *hyrum.Histo
 	if !p.run {
 		last := skillSteps[len(skillSteps)-1]
 		job := harness.Job{
-			Workspace: ws, SrcDir: "target", SkillName: last.name,
+			Workspace: ws, SrcDir: hyrum.TargetSubdir, SkillName: last.name,
 			OutputFile: last.out, Model: p.models[last.name], MaxTurns: last.maxTurns,
 		}
 		fmt.Printf("staged %s: %s %v\n", d.Name, p.h.Binary(), p.h.Args(job))
@@ -650,13 +650,13 @@ func remoteBasename(url string) string {
 // Returns the dep clone directory (empty when no repo URL was found) and the
 // dep's latest version from the registry, so callers can pass both to
 // GatherHistory for changelog discovery and range slicing.
-func stageContext(ctx context.Context, t *hyrum.Target, d hyrum.Dep, ws string, rc *registries.Client) (depDir, latest string, err error) {
+func stageContext(ctx context.Context, t *hyrum.Target, target string, d hyrum.Dep, ws string, rc *registries.Client) (depDir, latest string, err error) {
 	if err := os.MkdirAll(ws, 0o755); err != nil {
 		return "", "", err
 	}
 
 	// Target: symlink so the skill sees the real tree without a copy.
-	targetLink := filepath.Join(ws, "target")
+	targetLink := filepath.Join(ws, hyrum.TargetSubdir)
 	_ = os.Remove(targetLink)
 	if err := os.Symlink(t.Path, targetLink); err != nil {
 		return "", "", fmt.Errorf("link target: %w", err)
@@ -683,6 +683,7 @@ func stageContext(ctx context.Context, t *hyrum.Target, d hyrum.Dep, ws string, 
 		"version":   d.Version,
 		"repo":      repoURL,
 		"latest":    latest,
+		"target":    target,
 	}
 	if rerr != nil {
 		meta["registry_error"] = rerr.Error()

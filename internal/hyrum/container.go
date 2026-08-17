@@ -74,15 +74,15 @@ func (r ContainerRunner) RunSkill(ctx context.Context, h harness.Harness, ws, na
 		return nil, err
 	}
 	if r.TargetPath != "" {
-		_ = os.Remove(filepath.Join(absWork, "target"))
-		if err := os.MkdirAll(filepath.Join(absWork, "target"), 0o755); err != nil {
+		_ = os.Remove(filepath.Join(absWork, TargetSubdir))
+		if err := os.MkdirAll(filepath.Join(absWork, TargetSubdir), 0o755); err != nil {
 			return nil, err
 		}
 	}
 
 	job := harness.Job{
 		Workspace:    "/work",
-		SrcDir:       "target",
+		SrcDir:       TargetSubdir,
 		SkillName:    name,
 		OutputFile:   outputFile,
 		SystemPrompt: headlessSystemPrompt,

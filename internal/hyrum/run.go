@@ -58,6 +58,11 @@ type RunResult struct {
 
 const recoveredBackendError = "backend exited non-zero after writing fresh output"
 
+// TargetSubdir is the workspace subdirectory the target repository is
+// symlinked (host) or bind-mounted (container) into. SKILL.md files refer to
+// it by this name.
+const TargetSubdir = "target"
+
 // RunOptions contains backend-neutral per-invocation settings.
 type RunOptions struct {
 	Model    string
@@ -92,16 +97,16 @@ func runSkill(ctx context.Context, h harness.Harness, ws, name, outputFile strin
 	if err != nil {
 		return nil, fmt.Errorf("stage skill: %w", err)
 	}
-	// SKILL.md files reference ./schema.json relative to the workspace root;
-	// the backend discovers the skill under SkillDir. Mirror the schema so
-	// the path in the instructions is correct regardless of backend layout.
+	// SKILL.md files reference schema.json at the workspace root while the
+	// backend discovers the skill under SkillDir. Mirror the schema so the
+	// path in the instructions is correct regardless of backend layout.
 	if b, err := os.ReadFile(filepath.Join(skillDir, "schema.json")); err == nil {
 		_ = os.WriteFile(filepath.Join(ws, "schema.json"), b, 0o644)
 	}
 
 	job := harness.Job{
 		Workspace:    ws,
-		SrcDir:       "target",
+		SrcDir:       TargetSubdir,
 		SkillName:    name,
 		OutputFile:   outputFile,
 		SystemPrompt: headlessSystemPrompt,
