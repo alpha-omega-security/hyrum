@@ -60,7 +60,8 @@ const recoveredBackendError = "backend exited non-zero after writing fresh outpu
 
 // RunOptions contains backend-neutral per-invocation settings.
 type RunOptions struct {
-	Model string
+	Model    string
+	MaxTurns int
 }
 
 // Decode unmarshals the skill's output file into v.
@@ -105,6 +106,7 @@ func runSkill(ctx context.Context, h harness.Harness, ws, name, outputFile strin
 		OutputFile:   outputFile,
 		SystemPrompt: headlessSystemPrompt,
 		Model:        opts.Model,
+		MaxTurns:     opts.MaxTurns,
 	}
 	outputPath, err := prepareOutput(ws, outputFile)
 	if err != nil {

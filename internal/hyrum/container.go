@@ -87,6 +87,7 @@ func (r ContainerRunner) RunSkill(ctx context.Context, h harness.Harness, ws, na
 		OutputFile:   outputFile,
 		SystemPrompt: headlessSystemPrompt,
 		Model:        opts.Model,
+		MaxTurns:     opts.MaxTurns,
 	}
 
 	runtime := r.Runtime
