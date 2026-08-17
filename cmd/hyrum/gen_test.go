@@ -17,8 +17,9 @@ import (
 )
 
 type runnerCall struct {
-	name  string
-	model string
+	name     string
+	model    string
+	maxTurns int
 }
 
 type recordingRunner struct {
@@ -26,7 +27,7 @@ type recordingRunner struct {
 }
 
 func (r *recordingRunner) RunSkill(_ context.Context, _ harness.Harness, _, name, _ string, opts hyrum.RunOptions) (*hyrum.RunResult, error) {
-	r.calls = append(r.calls, runnerCall{name: name, model: opts.Model})
+	r.calls = append(r.calls, runnerCall{name: name, model: opts.Model, maxTurns: opts.MaxTurns})
 	output := json.RawMessage(`{"files":[]}`)
 	if name == "hyrum-validate" {
 		output = json.RawMessage(`{"verdicts":[]}`)
@@ -462,6 +463,84 @@ func TestResolveModelsUsesHarnessTier(t *testing.T) {
 	}
 }
 
+func TestCheckoutVersion(t *testing.T) {
+	dir := t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
+			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	marker := filepath.Join(dir, "api.txt")
+	write := func(s string) { _ = os.WriteFile(marker, []byte(s), 0o644) }
+	read := func() string { b, _ := os.ReadFile(marker); return string(b) }
+
+	git("init", "-q")
+	write("v1.0.0")
+	git("add", ".")
+	git("commit", "-q", "-m", "one")
+	git("tag", "v1.0.0")
+	write("v1.1.0")
+	git("commit", "-q", "-am", "two")
+	git("tag", "1.1.0")
+	write("head")
+	git("commit", "-q", "-am", "three")
+
+	ctx := context.Background()
+
+	t.Run("exact tag then restore", func(t *testing.T) {
+		restore := checkoutVersion(ctx, dir, "v1.0.0")
+		if read() != "v1.0.0" {
+			t.Fatalf("after checkout v1.0.0 marker = %q, want %q", read(), "v1.0.0")
+		}
+		restore()
+		if read() != "head" {
+			t.Fatalf("after restore marker = %q, want %q", read(), "head")
+		}
+	})
+
+	t.Run("toggled v-prefix", func(t *testing.T) {
+		// version has a leading v, tag does not.
+		restore := checkoutVersion(ctx, dir, "v1.1.0")
+		if read() != "v1.1.0" {
+			t.Fatalf("after checkout v1.1.0 marker = %q; expected tag %q to match", read(), "1.1.0")
+		}
+		restore()
+		// version has no leading v, tag does.
+		restore = checkoutVersion(ctx, dir, "1.0.0")
+		if read() != "v1.0.0" {
+			t.Fatalf("after checkout 1.0.0 marker = %q; expected tag %q to match", read(), "v1.0.0")
+		}
+		restore()
+	})
+
+	t.Run("unmatched tag is a no-op", func(t *testing.T) {
+		restore := checkoutVersion(ctx, dir, "9.9.9")
+		if read() != "head" {
+			t.Fatalf("unmatched checkout moved working tree: marker = %q", read())
+		}
+		restore()
+		if read() != "head" {
+			t.Fatalf("no-op restore moved working tree: marker = %q", read())
+		}
+	})
+
+	t.Run("empty version is a no-op", func(t *testing.T) {
+		checkoutVersion(ctx, dir, "")()
+		if read() != "head" {
+			t.Fatalf("empty-version checkout moved working tree: marker = %q", read())
+		}
+	})
+
+	t.Run("non-git dir is a no-op", func(t *testing.T) {
+		checkoutVersion(ctx, t.TempDir(), "v1.0.0")()
+	})
+}
+
 func TestPipelinePropagatesModelsToEverySkill(t *testing.T) {
 	models := map[string]string{
 		"hyrum-usage":    "usage-model",
@@ -484,6 +563,9 @@ func TestPipelinePropagatesModelsToEverySkill(t *testing.T) {
 	for _, call := range runner.calls {
 		if call.model != models[call.name] {
 			t.Errorf("%s model = %q, want %q", call.name, call.model, models[call.name])
+		}
+		if call.maxTurns <= harness.DefaultMaxTurns {
+			t.Errorf("%s maxTurns = %d; every skill should set an explicit cap above the harness default (%d)", call.name, call.maxTurns, harness.DefaultMaxTurns)
 		}
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -24,14 +25,30 @@ import (
 // skillSteps are the harness invocations genOne runs in order. usage and
 // history are best-effort (their outputs feed generate but generate can
 // still work from usage.json and dep-outline.md alone); a generate failure
-// is fatal because there is nothing to write without it.
+// is fatal because there is nothing to write without it. maxTurns overrides
+// harness.DefaultMaxTurns per skill; the values reflect observed turn counts
+// on small targets with headroom for larger dependencies and changelogs.
 var skillSteps = []struct {
 	name, out string
 	required  bool
+	maxTurns  int
 }{
-	{"hyrum-usage", "surface.json", false},
-	{"hyrum-history", "breaks.json", false},
-	{"hyrum-generate", "tests.json", true},
+	{"hyrum-usage", "surface.json", false, 40},
+	{"hyrum-history", "breaks.json", false, 50},
+	{"hyrum-generate", "tests.json", true, 60},
+}
+
+const validateMaxTurns = 40
+
+// depOutlineIgnore excludes files from dep-outline.md that carry no API
+// signal for test generation: licence text, CI configuration, editor and
+// linter settings. README.md is kept because usage examples there sometimes
+// document behaviour the source does not.
+var depOutlineIgnore = []string{
+	"LICENSE*", "LICENCE*", "COPYING*", "NOTICE*",
+	".github/", ".gitlab-ci.yml", ".circleci/", ".travis.yml",
+	".golangci.*", ".editorconfig", ".prettierrc*", ".eslintrc*",
+	"renovate.json", ".dependabot/", "CODEOWNERS", ".gitattributes",
 }
 
 const (
@@ -344,7 +361,7 @@ func (p *pipeline) genOne(ctx context.Context, t *hyrum.Target, idx *hyrum.Histo
 		last := skillSteps[len(skillSteps)-1]
 		job := harness.Job{
 			Workspace: ws, SrcDir: "target", SkillName: last.name,
-			OutputFile: last.out, Model: p.models[last.name],
+			OutputFile: last.out, Model: p.models[last.name], MaxTurns: last.maxTurns,
 		}
 		fmt.Printf("staged %s: %s %v\n", d.Name, p.h.Binary(), p.h.Args(job))
 		return nil
@@ -432,7 +449,7 @@ func (p *pipeline) runGenerateSkills(ctx context.Context, runner hyrum.Runner, w
 	var recoveredSteps []string
 	for _, s := range skillSteps {
 		fmt.Fprintf(os.Stderr, "  [%s]\n", s.name)
-		r, err := runner.RunSkill(ctx, p.h, ws, s.name, s.out, hyrum.RunOptions{Model: p.models[s.name]})
+		r, err := runner.RunSkill(ctx, p.h, ws, s.name, s.out, hyrum.RunOptions{Model: p.models[s.name], MaxTurns: s.maxTurns})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "  %s/%s: %v\n", depName, s.name, err)
 			if s.required {
@@ -476,7 +493,7 @@ func (p *pipeline) runValidate(ctx context.Context, runner hyrum.Runner, ws stri
 		return nil, 0, "", err
 	}
 	fmt.Fprintf(os.Stderr, "  [hyrum-validate]\n")
-	r, err := runner.RunSkill(ctx, p.h, ws, "hyrum-validate", "verdict.json", hyrum.RunOptions{Model: p.models["hyrum-validate"]})
+	r, err := runner.RunSkill(ctx, p.h, ws, "hyrum-validate", "verdict.json", hyrum.RunOptions{Model: p.models["hyrum-validate"], MaxTurns: validateMaxTurns})
 	if err != nil {
 		return nil, 0, "", err
 	}
@@ -687,12 +704,21 @@ func stageContext(ctx context.Context, t *hyrum.Target, d hyrum.Dep, ws string, 
 		fmt.Fprintf(os.Stderr, "  clone %s: %v (continuing without dep source)\n", repoURL, err)
 		return "", latest, nil
 	}
-	// The dep clone is ours to modify; remove any CLAUDE.md/AGENTS.md/.claude
-	// so the cloned repository cannot inject instructions into the skill run.
+	// Outline the dependency at the version the target actually pins so
+	// generated tests reference the baseline API rather than symbols added or
+	// changed since. The working tree is restored afterwards so writeChangelog
+	// (in GatherHistory) still reads the up-to-date changelog. Both trees are
+	// stripped of instruction files because the skill later reads dep/ directly.
+	restore := checkoutVersion(ctx, depDir, d.Version)
 	if _, err := harness.StripDirectives(depDir); err != nil {
+		restore()
 		return depDir, latest, fmt.Errorf("strip %s: %w", depDir, err)
 	}
-	res, err := outline.Pack(depDir, outline.Options{Compress: true})
+	res, err := outline.Pack(depDir, outline.Options{Compress: true, Ignore: depOutlineIgnore})
+	restore()
+	if _, serr := harness.StripDirectives(depDir); serr != nil {
+		return depDir, latest, fmt.Errorf("strip %s: %w", depDir, serr)
+	}
 	if err != nil {
 		return depDir, latest, fmt.Errorf("outline: %w", err)
 	}
@@ -706,6 +732,43 @@ func stageContext(ctx context.Context, t *hyrum.Target, d hyrum.Dep, ws string, 
 	}
 	defer f.Close()
 	return depDir, latest, res.Markdown(f)
+}
+
+// checkoutVersion moves dir's working tree to the git tag matching version and
+// returns a function that restores the previous ref. Both operations are
+// best-effort: an unmatched tag or a non-git dir yields a no-op restore and the
+// caller proceeds with whatever tree Ensure produced. Registries report
+// versions with or without a leading v depending on ecosystem, and repositories
+// tag with or without one independently of that, so both spellings are tried.
+// The checkout is forced because StripDirectives from a prior run in the same
+// --work directory can leave tracked deletions in the reused clone.
+func checkoutVersion(ctx context.Context, dir, version string) (restore func()) {
+	noop := func() {}
+	if version == "" {
+		return noop
+	}
+	candidates := []string{version}
+	if v, ok := strings.CutPrefix(version, "v"); ok {
+		candidates = append(candidates, v)
+	} else {
+		candidates = append(candidates, "v"+version)
+	}
+	prev, err := exec.CommandContext(ctx, "git", "-C", dir, "rev-parse", "HEAD").Output()
+	if err != nil {
+		return noop
+	}
+	for _, ref := range candidates {
+		//nolint:gosec // ref is a version string from the target's own manifest.
+		cmd := exec.CommandContext(ctx, "git", "-C", dir, "-c", "advice.detachedHead=false", "checkout", "-f", "--detach", ref)
+		if cmd.Run() == nil {
+			return func() {
+				//nolint:gosec // prev is a sha from git rev-parse above.
+				_ = exec.CommandContext(ctx, "git", "-C", dir, "checkout", "-f", "--detach", strings.TrimSpace(string(prev))).Run()
+			}
+		}
+	}
+	fmt.Fprintf(os.Stderr, "  no tag for %s in %s; outlining default branch\n", version, dir)
+	return noop
 }
 
 // countExported returns the number of exported top-level declarations across
