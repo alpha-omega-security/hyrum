@@ -155,6 +155,7 @@ func TestConstraintVersion(t *testing.T) {
 		{"", "npm", ""},
 		{"~> 4.0", "gem", "4.0"},
 		{"~=2.3", "pypi", "2.3"},
+		{">=2.3,!=2.3", "pypi", ""},
 		{"v10.28.0", "golang", "v10.28.0"},
 	}
 	for _, c := range cases {
