@@ -7,7 +7,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -570,15 +569,15 @@ func constraintVersion(v, ecosystem string) string {
 	if v == "" {
 		return ""
 	}
-	r, err := (&vers.Parser{}).ParseNative(v, ecosystem)
-	if err != nil || len(r.Intervals) == 0 {
+	r, err := vers.ParseNative(v, ecosystem)
+	if err != nil {
 		return ""
 	}
-	iv := r.Intervals[0]
-	if iv.Min == "" || !iv.MinInclusive {
+	minimum, ok := r.MinimumVersion()
+	if !ok {
 		return ""
 	}
-	return iv.Min
+	return minimum
 }
 
 // resolveContainer maps the --container flag value to an image name. Empty
@@ -710,7 +709,7 @@ func stageContext(ctx context.Context, t *hyrum.Target, target string, d hyrum.D
 	// changed since. The working tree is restored afterwards so writeChangelog
 	// (in GatherHistory) still reads the up-to-date changelog. Both trees are
 	// stripped of instruction files because the skill later reads dep/ directly.
-	restore := checkoutVersion(ctx, depDir, d.Version)
+	restore := checkoutVersion(ctx, depDir, d.Version, d.Ecosystem)
 	if _, err := harness.StripDirectives(depDir); err != nil {
 		restore()
 		return depDir, latest, fmt.Errorf("strip %s: %w", depDir, err)
@@ -741,31 +740,28 @@ func stageContext(ctx context.Context, t *hyrum.Target, target string, d hyrum.D
 // caller proceeds with whatever tree Ensure produced. Registries report
 // versions with or without a leading v depending on ecosystem, and repositories
 // tag with or without one independently of that, so both spellings are tried.
+// Native manifest constraints are reduced to their inclusive lower bound first.
 // The checkout is forced because StripDirectives from a prior run in the same
 // --work directory can leave tracked deletions in the reused clone.
-func checkoutVersion(ctx context.Context, dir, version string) (restore func()) {
+func checkoutVersion(ctx context.Context, dir, version, ecosystem string) (restore func()) {
 	noop := func() {}
 	if version == "" {
 		return noop
 	}
-	candidates := []string{version}
-	if v, ok := strings.CutPrefix(version, "v"); ok {
-		candidates = append(candidates, v)
-	} else {
-		candidates = append(candidates, "v"+version)
+	if baseline := constraintVersion(version, ecosystem); baseline != "" {
+		version = baseline
 	}
-	prev, err := exec.CommandContext(ctx, "git", "-C", dir, "rev-parse", "HEAD").Output()
+	candidates, err := vers.TagCandidates(version, ecosystem)
 	if err != nil {
 		return noop
 	}
-	for _, ref := range candidates {
-		//nolint:gosec // ref is a version string from the target's own manifest.
-		cmd := exec.CommandContext(ctx, "git", "-C", dir, "-c", "advice.detachedHead=false", "checkout", "-f", "--detach", ref)
-		if cmd.Run() == nil {
-			return func() {
-				//nolint:gosec // prev is a sha from git rev-parse above.
-				_ = exec.CommandContext(ctx, "git", "-C", dir, "checkout", "-f", "--detach", strings.TrimSpace(string(prev))).Run()
-			}
+	for _, tag := range candidates {
+		restoreCheckout, err := clone.CheckoutTag(ctx, dir, tag)
+		if err != nil {
+			continue
+		}
+		return func() {
+			_ = restoreCheckout(context.WithoutCancel(ctx))
 		}
 	}
 	fmt.Fprintf(os.Stderr, "  no tag for %s in %s; outlining default branch\n", version, dir)

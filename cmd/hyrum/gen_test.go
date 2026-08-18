@@ -493,10 +493,12 @@ func TestCheckoutVersion(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("exact tag then restore", func(t *testing.T) {
-		restore := checkoutVersion(ctx, dir, "v1.0.0")
+		checkoutCtx, cancel := context.WithCancel(ctx)
+		restore := checkoutVersion(checkoutCtx, dir, "v1.0.0", "")
 		if read() != "v1.0.0" {
 			t.Fatalf("after checkout v1.0.0 marker = %q, want %q", read(), "v1.0.0")
 		}
+		cancel()
 		restore()
 		if read() != "head" {
 			t.Fatalf("after restore marker = %q, want %q", read(), "head")
@@ -505,21 +507,44 @@ func TestCheckoutVersion(t *testing.T) {
 
 	t.Run("toggled v-prefix", func(t *testing.T) {
 		// version has a leading v, tag does not.
-		restore := checkoutVersion(ctx, dir, "v1.1.0")
+		restore := checkoutVersion(ctx, dir, "v1.1.0", "")
 		if read() != "v1.1.0" {
 			t.Fatalf("after checkout v1.1.0 marker = %q; expected tag %q to match", read(), "1.1.0")
 		}
 		restore()
 		// version has no leading v, tag does.
-		restore = checkoutVersion(ctx, dir, "1.0.0")
+		restore = checkoutVersion(ctx, dir, "1.0.0", "")
 		if read() != "v1.0.0" {
 			t.Fatalf("after checkout 1.0.0 marker = %q; expected tag %q to match", read(), "v1.0.0")
 		}
 		restore()
 	})
 
+	t.Run("manifest constraint", func(t *testing.T) {
+		restore := checkoutVersion(ctx, dir, "^1.0", hyrum.EcoNPM)
+		if read() != "v1.0.0" {
+			t.Fatalf("after checkout ^1.0 marker = %q, want %q", read(), "v1.0.0")
+		}
+		restore()
+	})
+
+	for _, version := range []string{"--ignore-skip-worktree-bits", "v1.1.0~1"} {
+		t.Run("untrusted version "+version, func(t *testing.T) {
+			git("checkout", "-q", "-f", "-B", "safe-head")
+			checkoutVersion(ctx, dir, version, hyrum.EcoNPM)()
+			cmd := exec.Command("git", "-C", dir, "symbolic-ref", "--short", "HEAD")
+			out, err := cmd.Output()
+			if err != nil {
+				t.Fatalf("version %q detached HEAD: %v", version, err)
+			}
+			if got := strings.TrimSpace(string(out)); got != "safe-head" {
+				t.Fatalf("branch after version %q = %q, want safe-head", version, got)
+			}
+		})
+	}
+
 	t.Run("unmatched tag is a no-op", func(t *testing.T) {
-		restore := checkoutVersion(ctx, dir, "9.9.9")
+		restore := checkoutVersion(ctx, dir, "9.9.9", "")
 		if read() != "head" {
 			t.Fatalf("unmatched checkout moved working tree: marker = %q", read())
 		}
@@ -530,14 +555,14 @@ func TestCheckoutVersion(t *testing.T) {
 	})
 
 	t.Run("empty version is a no-op", func(t *testing.T) {
-		checkoutVersion(ctx, dir, "")()
+		checkoutVersion(ctx, dir, "", "")()
 		if read() != "head" {
 			t.Fatalf("empty-version checkout moved working tree: marker = %q", read())
 		}
 	})
 
 	t.Run("non-git dir is a no-op", func(t *testing.T) {
-		checkoutVersion(ctx, t.TempDir(), "v1.0.0")()
+		checkoutVersion(ctx, t.TempDir(), "v1.0.0", "")()
 	})
 }
 
