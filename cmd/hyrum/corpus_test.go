@@ -5,6 +5,17 @@ import (
 	"testing"
 )
 
+func TestCmdCorpusRejectsNonPositiveOutlineBudget(t *testing.T) {
+	err := cmdCorpus(t.Context(), []string{
+		"--upstream", "pkg:npm/ws",
+		"--out", t.TempDir(),
+		"--outline-bytes", "0",
+	})
+	if err == nil || !strings.Contains(err.Error(), "--outline-bytes must be greater than zero") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestCmdCorpusReturnsAllDependentFailures(t *testing.T) {
 	first := "file:///missing-first"
 	second := "file:///missing-second"

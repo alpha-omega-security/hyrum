@@ -31,6 +31,7 @@ func cmdCorpus(ctx context.Context, args []string) error {
 	work := fs.String("work", filepath.Join(os.TempDir(), "hyrum-corpus"), "working directory for clones and skill workspaces")
 	backend := fs.String("backend", "claude", "harness backend: "+harness.Names())
 	run := fs.Bool("run", false, "invoke the backend (otherwise stage only)")
+	outlineBytes := fs.Int("outline-bytes", defaultOutlineBytes, "maximum bytes in each dependency outline")
 	container := fs.String("container", "", "run the backend in a container using this image (\"default\" for the published runner)")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -41,12 +42,16 @@ func cmdCorpus(ctx context.Context, args []string) error {
 	if *out == "" {
 		return fmt.Errorf("--out is required")
 	}
+	if *outlineBytes <= 0 {
+		return fmt.Errorf("--outline-bytes must be greater than zero")
+	}
 
 	h, err := harness.ByName(*backend)
 	if err != nil {
 		return err
 	}
 	p := newPipeline(h, *work, *out, *run, resolveContainer(*container))
+	p.outlineBytes = *outlineBytes
 	rc := p.rc
 
 	specs := []string(explicitDeps)

@@ -8,9 +8,9 @@ import (
 func TestUsageShowsAcceptedArgumentOrder(t *testing.T) {
 	for _, want := range []string{
 		"hyrum surface [--config file] [--dep name] [--symbol name] [--scope scope] [--include path] [--exclude path] [--json] [path]",
-		"hyrum gen     [--config file] [--dep name] [--symbol name] [--batch-size N] [--batch-sites N] [--scope scope] [--include path] [--exclude path] [--out dir] [--work dir] [--backend name] [--run] [path]",
+		"hyrum gen     [--config file] [--dep name] [--symbol name] [--batch-size N] [--batch-sites N] [--outline-bytes N] [--scope scope] [--include path] [--exclude path] [--out dir] [--work dir] [--backend name] [--run] [path]",
 		"hyrum check   --dep name[@version] [--tests dir] [path]",
-		"hyrum corpus  --upstream purl --out dir [--dependent URL[@ref]] [--discover N]",
+		"hyrum corpus  --upstream purl --out dir [--dependent URL[@ref]] [--discover N] [--outline-bytes N]",
 	} {
 		if !strings.Contains(usageText, want) {
 			t.Errorf("usage does not contain %q", want)
