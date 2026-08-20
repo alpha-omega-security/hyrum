@@ -1,13 +1,12 @@
 # Model steps
 
-`hyrum gen --run` invokes four model-driven steps in sequence, each a
-[skill](../skills/) file (`SKILL.md` plus a JSON-schema output contract)
-staged into the workspace and run headlessly by the configured backend. The
-Go pipeline stages every non-model input first, so each step reads only
-files, and the output of each step is a JSON file the next one reads.
-Splitting the work this way keeps each prompt focused on one job, lets a
-cheaper model handle the extraction and classification steps while a stronger
-one writes tests, and makes each step's output inspectable in the workspace
+`hyrum gen --run` invokes the usage, history, and generation
+[skills](../skills/), followed by validation when `--verify` is set. Each skill
+is a `SKILL.md` file with a JSON-schema output contract, staged into the
+workspace and run headlessly by the configured backend. The Go pipeline stages
+every non-model input first, so each step reads files and leaves a JSON file for
+the next step. A cheaper model can handle extraction and classification while
+a stronger one writes tests, and every intermediate file remains available
 after a run.
 
 ## Workspace layout
@@ -24,6 +23,31 @@ Before any model step runs, `stageContext` and `GatherHistory` write:
 | `git-log.txt` | target commits selected by dependency mentions in messages or changed manifest lines | history |
 | `changelog.json` | `changelog.Between(baseline, latest)` from `dep/` (absent if none found) | history, validate |
 | `vulns.json` | osv.dev advisories for the dep's purl | history |
+| `batches/batch-NNN/usage.json` | one deterministic usage subset when a batch limit is set | inspection |
+
+## Symbol selection and batches
+
+Repeatable `--symbol` values select exact, case-sensitive names from
+`usage.json`. The flag requires one explicit dependency. Path selection still
+happens during indexing through `--include`, `--exclude`, and `--scope`, then
+symbol selection is applied to the resulting surface.
+
+`--batch-size N` caps symbol entries, and `--batch-sites N` caps static sites.
+Names and sites are sorted before partitioning. A symbol with more sites than
+the `--batch-sites` limit is split across batches so the cap still holds.
+History runs once and `breaks.json` is available to batch 1, which prevents
+every batch from generating the same history-derived tests. Usage and
+generation run for each group. Raw `usage.json`, `surface.json`, and
+`tests.json` files remain under `batches/batch-NNN/` for inspection.
+
+For runs with several batches, generated paths receive a `batch-NNN/` prefix
+before they are written under `tests/hyrum/<dep>/from_<target>/`. The driver
+merges static usage, traced calls, generation notes, and generated file lists;
+verification and validation then run once over that merged input. Top-level
+`meta.json` includes `batch_size` and `batch_sites` when their limits are set,
+plus `batch_count`, `history_cost_usd`, and a `batches` array. Each batch entry
+records its symbol names, site count, backend session, cost, notes, and any
+recovered model steps.
 
 ## hyrum-usage
 
