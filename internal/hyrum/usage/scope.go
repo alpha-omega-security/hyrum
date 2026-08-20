@@ -15,12 +15,13 @@ const (
 	ScopeDocumentation Scope = "documentation"
 )
 
-// IndexOptions limits indexed files by relative path prefix and scope. Empty
-// fields include every path and scope.
+// IndexOptions limits indexed files and supplies explicit dependency
+// activation strings keyed by dependency PURL.
 type IndexOptions struct {
 	IncludePaths []string
 	ExcludePaths []string
 	Scopes       []Scope
+	Activations  map[string][]string
 }
 
 func (o IndexOptions) allows(rel string, scope Scope) bool {

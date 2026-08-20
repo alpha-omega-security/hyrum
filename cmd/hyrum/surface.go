@@ -8,6 +8,7 @@ import (
 	"sort"
 	"text/tabwriter"
 
+	hyrumconfig "github.com/alpha-omega-security/hyrum/internal/config"
 	"github.com/alpha-omega-security/hyrum/internal/hyrum"
 	"github.com/alpha-omega-security/hyrum/internal/hyrum/usage"
 	"github.com/git-pkgs/purl"
@@ -25,8 +26,13 @@ func cmdSurface(ctx context.Context, args []string) error {
 	fs.Var(&excludes, "exclude", "relative path prefix to exclude (repeatable)")
 	asJSON := fs.Bool("json", false, "emit JSON instead of a table")
 	directOnly := fs.Bool("direct", true, "restrict summary to direct dependencies")
+	configPath := fs.String("config", "", "configuration file (default: <target>/hyrum.yaml when present)")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	set := visitedFlags(fs)
+	if set["config"] && *configPath == "" {
+		return fmt.Errorf("--config requires a non-empty path")
 	}
 	opts, err := resolveUsageOptions(scopes, includes, excludes, nil)
 	if err != nil {
@@ -41,6 +47,17 @@ func cmdSurface(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	cfg, _, err := hyrumconfig.Load(t.Path, *configPath)
+	if err != nil {
+		return err
+	}
+	configuredDeps := append([]hyrum.Dep(nil), t.Deps...)
+	for _, name := range deps {
+		if dep, ok := findDep(t, name); ok && !containsDepPURL(configuredDeps, dep.PURL) {
+			configuredDeps = append(configuredDeps, dep)
+		}
+	}
+	opts = withConfiguredActivations(opts, configuredDeps, cfg.Deps)
 
 	if len(deps) == 0 {
 		return surfaceSummaryWithOptions(ctx, t, *directOnly, *asJSON, opts)
@@ -172,7 +189,17 @@ func surfaceDetailWithOptions(
 }
 
 func emptyUsageOptions(opts usage.IndexOptions) bool {
-	return len(opts.Scopes) == 0 && len(opts.IncludePaths) == 0 && len(opts.ExcludePaths) == 0
+	return len(opts.Scopes) == 0 && len(opts.IncludePaths) == 0 &&
+		len(opts.ExcludePaths) == 0 && len(opts.Activations) == 0
+}
+
+func containsDepPURL(deps []hyrum.Dep, purl string) bool {
+	for _, dep := range deps {
+		if dep.PURL == purl {
+			return true
+		}
+	}
+	return false
 }
 
 func findDep(t *hyrum.Target, name string) (hyrum.Dep, bool) {

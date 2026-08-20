@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"path/filepath"
 
+	hyrumconfig "github.com/alpha-omega-security/hyrum/internal/config"
+	"github.com/alpha-omega-security/hyrum/internal/hyrum"
 	"github.com/alpha-omega-security/hyrum/internal/hyrum/usage"
 )
 
@@ -39,6 +41,24 @@ func resolveUsageOptions(
 		opts.ExcludePaths = append(opts.ExcludePaths, path)
 	}
 	return opts, nil
+}
+
+func withConfiguredActivations(
+	opts usage.IndexOptions,
+	deps []hyrum.Dep,
+	overrides map[string]hyrumconfig.Dependency,
+) usage.IndexOptions {
+	for _, dep := range deps {
+		configured := dependencyConfigFor(dep, overrides).Activations
+		if len(configured) == 0 {
+			continue
+		}
+		if opts.Activations == nil {
+			opts.Activations = map[string][]string{}
+		}
+		opts.Activations[dep.PURL] = append([]string(nil), configured...)
+	}
+	return opts
 }
 
 func resolveUsageScope(value string) (usage.Scope, error) {

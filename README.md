@@ -138,20 +138,20 @@ For codex, `export CODEX_API_KEY=sk-...`. Copilot accepts
 
 ## Configuration
 
-`hyrum gen` automatically loads `hyrum.yaml` from the analyzed target
-repository's root when that file exists. It does not search parent
-directories. Use `--config <path>` to load a different file; a missing,
+`hyrum gen` and `hyrum surface` automatically load `hyrum.yaml` from the
+analyzed target repository's root when that file exists. They do not search
+parent directories. Use `--config <path>` to load a different file; a missing,
 unreadable, malformed, or invalid explicit file is an error, while an absent
 automatic file is not. Configuration is strict: unknown keys and incorrect
 value types are rejected.
 
 The supported settings are `backend`, `out`, `work`, per-skill `models`, and
-per-dependency `baseline` and `skip` values under `deps`. Explicit command-line
-flags take precedence over config, and config takes precedence over built-in
-defaults. Relative `out` paths are rooted at the target repository. For safety,
-`out` in an automatically discovered target configuration must remain inside
-that target; an explicitly supplied `--config` may select an external output
-path.
+per-dependency `baseline`, `skip`, and `activations` values under `deps`.
+Explicit command-line flags take precedence over config, and config takes
+precedence over built-in defaults. Relative `out` paths are rooted at the
+target repository. For safety, `out` in an automatically discovered target
+configuration must remain inside that target; an explicitly supplied
+`--config` may select an external output path.
 
 An automatically discovered config cannot select `work`: that value is ignored
 unless the operator supplies the config with `--config`. `--work` is always
@@ -163,6 +163,12 @@ wins for fields also set by a name entry. `skip: true` removes a dependency
 from default generation, but an explicit `--dep` includes it. `baseline`
 changes the version staged, verified, and recorded by Hyrum without modifying
 the target's manifest or lockfile.
+
+`activations` lists exact quoted string literals that select a dependency
+without importing it directly. Driver names, plugin aliases, dynamic import
+names, and entry-point identifiers can be recorded this way. Each match appears
+in the static surface with kind `activation`, its source line, and its path
+scope. Comment-only lines are ignored.
 
 Model values are portable `mid`, `high`, or `max` tiers. Each selected backend
 maps the tier to a model through the harness API, so model selection applies

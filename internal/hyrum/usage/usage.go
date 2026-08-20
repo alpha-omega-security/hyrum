@@ -9,6 +9,8 @@
 // git-pkgs/provides; a curated Python catalog is chained ahead of the
 // naming-convention resolver so packages whose importable name is not a
 // mechanical transform of their registry name (PyYAML → yaml) still match.
+// Explicit activation strings add sites for dependencies selected through
+// driver names, plugin aliases, dynamic imports, or entry points.
 //
 // Adding an ecosystem is one specs entry: file extensions plus whether the
 // language allows referencing a dependency's top-level name without an
@@ -34,8 +36,8 @@ type Site struct {
 	Scope   Scope  `json:"scope"`
 }
 
-// Symbol is one imported/required name from the dependency and every place
-// the target references it.
+// Symbol is one dependency entry point and every place the target references
+// or activates it.
 type Symbol struct {
 	Name  string `json:"name"`
 	Kind  string `json:"kind,omitempty"`
@@ -44,7 +46,7 @@ type Symbol struct {
 
 // Surface is the full usage surface of one dependency as seen from one target.
 type Surface struct {
-	Dep       string   `json:"dep"`       // package name as imported
+	Dep       string   `json:"dep"`       // package name
 	PURL      string   `json:"purl"`      // canonical identity
 	Ecosystem string   `json:"ecosystem"` // purl type
 	Symbols   []Symbol `json:"symbols"`
@@ -89,7 +91,7 @@ func Index(ctx context.Context, root, depPURL string) (*Surface, error) {
 	return IndexWithOptions(ctx, root, depPURL, IndexOptions{})
 }
 
-// IndexWithOptions is Index with path and scope filtering.
+// IndexWithOptions is Index with path, scope, and activation options.
 func IndexWithOptions(
 	ctx context.Context,
 	root, depPURL string,
@@ -99,7 +101,14 @@ func IndexWithOptions(
 	if err != nil {
 		return nil, err
 	}
-	s, err := scanWithOptions(ctx, root, target.spec, target.provided, opts)
+	s, err := scanWithOptions(
+		ctx,
+		root,
+		target.spec,
+		target.provided,
+		opts.Activations[target.depPURL],
+		opts,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +150,7 @@ func IndexMany(ctx context.Context, root string, depPURLs []string) (map[string]
 	return IndexManyWithOptions(ctx, root, depPURLs, IndexOptions{})
 }
 
-// IndexManyWithOptions is IndexMany with path and scope filtering.
+// IndexManyWithOptions is IndexMany with path, scope, and activation options.
 func IndexManyWithOptions(
 	ctx context.Context,
 	root string,
@@ -180,8 +189,9 @@ func IndexManyWithOptions(
 		scanTargets := make([]scanTarget, 0, len(targets))
 		for _, target := range targets {
 			scanTargets = append(scanTargets, scanTarget{
-				key:      target.depPURL,
-				provided: target.provided,
+				key:         target.depPURL,
+				provided:    target.provided,
+				activations: opts.Activations[target.depPURL],
 			})
 		}
 		surfaces, err := scanManyWithOptions(ctx, root, targets[0].spec, scanTargets, opts)
