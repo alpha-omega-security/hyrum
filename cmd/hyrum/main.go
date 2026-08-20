@@ -66,7 +66,7 @@ func printUsage() {
 const usageText = `hyrum: generate and run Hyrum's tests
 
 Usage:
-  hyrum surface [--dep name] [--scope scope] [--include path] [--exclude path] [--json] [path]
+  hyrum surface [--config file] [--dep name] [--scope scope] [--include path] [--exclude path] [--json] [path]
   hyrum gen     [--config file] [--dep name] [--scope scope] [--include path] [--exclude path] [--out dir] [--work dir] [--backend name] [--run] [path]
   hyrum check   --dep name[@version] [--tests dir] [path]
   hyrum corpus  --upstream purl --out dir [--dependent URL[@ref]] [--discover N]
