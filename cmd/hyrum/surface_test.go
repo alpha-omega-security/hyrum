@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/alpha-omega-security/hyrum/internal/hyrum"
+	"github.com/alpha-omega-security/hyrum/internal/hyrum/usage"
 )
 
 func TestSurfaceSummaryReturnsContextCancellation(t *testing.T) {
@@ -21,7 +22,7 @@ func TestSurfaceSummaryReturnsContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
-	err := surfaceSummary(ctx, target, true, false)
+	err := surfaceSummaryWithOptions(ctx, target, true, false, usage.IndexOptions{})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("surfaceSummary error = %v, want context canceled", err)
 	}

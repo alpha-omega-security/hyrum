@@ -83,13 +83,19 @@ var skipDirs = map[string]bool{
 	"log":          true,
 }
 
-// scan walks root, extracts imports via outline.Imports, keeps those whose
+// scanWithOptions walks root, extracts imports via outline.Imports, keeps those whose
 // module matches one of the dep's provided names, records their bound
 // identifiers as receivers, then calls outline.Refs to collect direct member
 // accesses on those receivers.
-func scan(ctx context.Context, root string, sp spec, provided []provides.ProvidedName) (*Surface, error) {
+func scanWithOptions(
+	ctx context.Context,
+	root string,
+	sp spec,
+	provided []provides.ProvidedName,
+	opts IndexOptions,
+) (*Surface, error) {
 	const key = "dependency"
-	surfaces, err := scanMany(ctx, root, sp, []scanTarget{{key: key, provided: provided}})
+	surfaces, err := scanManyWithOptions(ctx, root, sp, []scanTarget{{key: key, provided: provided}}, opts)
 	return surfaces[key], err
 }
 
@@ -98,11 +104,12 @@ type scanTarget struct {
 	provided []provides.ProvidedName
 }
 
-func scanMany(
+func scanManyWithOptions(
 	ctx context.Context,
 	root string,
 	sp spec,
 	targets []scanTarget,
+	opts IndexOptions,
 ) (map[string]*Surface, error) {
 	exts := set(sp.exts...)
 	collectors := make(map[string]*collector, len(targets))
@@ -111,6 +118,14 @@ func scanMany(
 	}
 
 	err := walkSourceFiles(ctx, root, exts, func(path string) error {
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			return nil
+		}
+		scope := scopeForPath(rel)
+		if !opts.allows(rel, scope) {
+			return nil
+		}
 		src, rerr := os.ReadFile(path)
 		if rerr != nil {
 			return nil
@@ -118,8 +133,7 @@ func scanMany(
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		rel, _ := filepath.Rel(root, path)
-		return scanFileMany(ctx, collectors, sp, src, rel, targets)
+		return scanFileMany(ctx, collectors, sp, src, rel, scope, targets)
 	})
 	surfaces := make(map[string]*Surface, len(collectors))
 	for key, c := range collectors {
@@ -168,6 +182,7 @@ func scanFileMany(
 	sp spec,
 	src []byte,
 	rel string,
+	scope Scope,
 	targets []scanTarget,
 ) error {
 	if err := ctx.Err(); err != nil {
@@ -186,7 +201,7 @@ func scanFileMany(
 	if err != nil {
 		return err
 	}
-	if err := recordMatchingImports(ctx, collectors, sp, imports, rel, lines, targets, receivers); err != nil {
+	if err := recordMatchingImports(ctx, collectors, sp, imports, rel, scope, lines, targets, receivers); err != nil {
 		return err
 	}
 	owners := collectReceiverOwners(receivers, collectors)
@@ -201,7 +216,7 @@ func scanFileMany(
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	return recordRefs(ctx, owners, refs, rel, lines)
+	return recordRefs(ctx, owners, refs, rel, scope, lines)
 }
 
 // receivers maps each target's local identifiers to export-side names.
@@ -239,6 +254,7 @@ func recordMatchingImports(
 	sp spec,
 	imports []outline.Import,
 	rel string,
+	scope Scope,
 	lines []string,
 	targets []scanTarget,
 	receivers map[string]map[string]string,
@@ -259,6 +275,7 @@ func recordMatchingImports(
 				sp,
 				imp,
 				rel,
+				scope,
 				lineAt(lines, imp.Line),
 				receivers[target.key],
 			)
@@ -288,6 +305,7 @@ func recordRefs(
 	owners map[string][]receiverOwner,
 	refs []outline.Ref,
 	rel string,
+	scope Scope,
 	lines []string,
 ) error {
 	for _, ref := range refs {
@@ -301,6 +319,7 @@ func recordRefs(
 				rel,
 				ref.Line,
 				lineAt(lines, ref.Line),
+				scope,
 			)
 		}
 	}
@@ -309,11 +328,19 @@ func recordRefs(
 
 // recordImport records the symbols one matching import statement introduces
 // and adds the local identifiers it binds to receivers.
-func recordImport(c *collector, sp spec, imp outline.Import, rel, ctx string, receivers map[string]string) {
+func recordImport(
+	c *collector,
+	sp spec,
+	imp outline.Import,
+	rel string,
+	scope Scope,
+	ctx string,
+	receivers map[string]string,
+) {
 	switch imp.Kind {
 	case outline.ImportNamed:
 		for _, n := range imp.Names {
-			c.add(n.Name, kindNamed, rel, imp.Line, ctx)
+			c.add(n.Name, kindNamed, rel, imp.Line, ctx, scope)
 			local := n.Alias
 			if local == "" {
 				local = n.Name
@@ -321,7 +348,7 @@ func recordImport(c *collector, sp spec, imp outline.Import, rel, ctx string, re
 			receivers[local] = n.Name
 		}
 	case outline.ImportSideEffect, outline.ImportWildcard:
-		c.add(imp.Module, string(imp.Kind), rel, imp.Line, ctx)
+		c.add(imp.Module, string(imp.Kind), rel, imp.Line, ctx, scope)
 	default:
 		// Module, default, and namespace imports bind one local identifier
 		// for the whole module. Record the module path as the consumed
@@ -329,7 +356,7 @@ func recordImport(c *collector, sp spec, imp outline.Import, rel, ctx string, re
 		// as module.member regardless of the target's chosen alias. When
 		// outline reports no alias, moduleAlias derives one where the
 		// ecosystem defines a convention.
-		c.add(imp.Module, string(imp.Kind), rel, imp.Line, ctx)
+		c.add(imp.Module, string(imp.Kind), rel, imp.Line, ctx, scope)
 		alias := ""
 		if len(imp.Names) > 0 {
 			alias = imp.Names[0].Alias
@@ -359,7 +386,7 @@ func newCollector() *collector {
 	return &collector{syms: map[string]*Symbol{}}
 }
 
-func (c *collector) add(name, kind, file string, line int, ctx string) {
+func (c *collector) add(name, kind, file string, line int, ctx string, scope Scope) {
 	if name == "" {
 		return
 	}
@@ -369,7 +396,7 @@ func (c *collector) add(name, kind, file string, line int, ctx string) {
 		c.syms[name] = s
 		c.order = append(c.order, name)
 	}
-	s.Sites = append(s.Sites, Site{File: file, Line: line, Context: ctx})
+	s.Sites = append(s.Sites, Site{File: file, Line: line, Context: ctx, Scope: scope})
 }
 
 func (c *collector) surface() *Surface {

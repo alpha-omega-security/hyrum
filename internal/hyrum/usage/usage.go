@@ -31,6 +31,7 @@ type Site struct {
 	File    string `json:"file"`
 	Line    int    `json:"line"`
 	Context string `json:"context"`
+	Scope   Scope  `json:"scope"`
 }
 
 // Symbol is one imported/required name from the dependency and every place
@@ -85,11 +86,20 @@ func Ecosystems() []string {
 // Index scans root for source-level references to the dependency identified
 // by depPURL and returns the discovered surface.
 func Index(ctx context.Context, root, depPURL string) (*Surface, error) {
+	return IndexWithOptions(ctx, root, depPURL, IndexOptions{})
+}
+
+// IndexWithOptions is Index with path and scope filtering.
+func IndexWithOptions(
+	ctx context.Context,
+	root, depPURL string,
+	opts IndexOptions,
+) (*Surface, error) {
 	target, err := resolveTarget(ctx, depPURL)
 	if err != nil {
 		return nil, err
 	}
-	s, err := scan(ctx, root, target.spec, target.provided)
+	s, err := scanWithOptions(ctx, root, target.spec, target.provided, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -128,6 +138,16 @@ func resolveTarget(ctx context.Context, depPURL string) (resolvedTarget, error) 
 // IndexMany scans root once per represented ecosystem and returns a result
 // keyed by dependency PURL. Duplicate PURLs are resolved and scanned once.
 func IndexMany(ctx context.Context, root string, depPURLs []string) (map[string]IndexResult, error) {
+	return IndexManyWithOptions(ctx, root, depPURLs, IndexOptions{})
+}
+
+// IndexManyWithOptions is IndexMany with path and scope filtering.
+func IndexManyWithOptions(
+	ctx context.Context,
+	root string,
+	depPURLs []string,
+	opts IndexOptions,
+) (map[string]IndexResult, error) {
 	results := make(map[string]IndexResult, len(depPURLs))
 	groups := map[string][]resolvedTarget{}
 	var ecosystems []string
@@ -164,7 +184,7 @@ func IndexMany(ctx context.Context, root string, depPURLs []string) (map[string]
 				provided: target.provided,
 			})
 		}
-		surfaces, err := scanMany(ctx, root, targets[0].spec, scanTargets)
+		surfaces, err := scanManyWithOptions(ctx, root, targets[0].spec, scanTargets, opts)
 		if err != nil {
 			return nil, err
 		}
