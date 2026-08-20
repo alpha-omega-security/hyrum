@@ -18,7 +18,7 @@ Before any model step runs, `stageContext` and `GatherHistory` write:
 |---|---|---|
 | `target/` | symlink to the target repository | usage, generate |
 | `dep/` | full clone of the dependency's source repo (best-effort) | history, generate |
-| `usage.json` | `outline.Imports`/`Refs` over `target/` filtered to this dep via `provides` | usage, generate |
+| `usage.json` | scoped `outline.Imports`/`Refs` over `target/` filtered to this dep via `provides` | usage, generate |
 | `dep-outline.md` | `outline.Pack` of `dep/`, signature-only | usage, generate |
 | `context.json` | purl, name, ecosystem, baseline version, repo URL, latest version, exported-symbol count | all |
 | `git-log.txt` | target's `git log --all` filtered to commits mentioning the dep | history |
@@ -37,6 +37,8 @@ but the interesting behaviour is often on values derived from those:
 has `.readyState` read on it. This step follows each `usage.json` entry point
 through the target's source and records the full call surface: receiver,
 member, argument shapes, and what the target reads from the return value.
+Each site retains its `production`, `test`, `example`, or `documentation`
+scope. Generation stages production sites by default.
 engine.io's one static entry point becomes fifteen traced calls; httpbin's
 nine Flask imports become sixty-eight. Output shape:
 
@@ -45,7 +47,7 @@ nine Flask imports become sixty-eight. Output shape:
   {"receiver": "wss", "member": "handleUpgrade",
    "args": ["http.IncomingMessage", "net.Socket", "Buffer", "callback"],
    "returns": "reads .readyState on cb arg 0",
-   "sites": ["lib/server.js:384"]}
+   "sites": [{"file": "lib/server.js", "line": 384, "scope": "production"}]}
 ], "notes": "..."}
 ```
 

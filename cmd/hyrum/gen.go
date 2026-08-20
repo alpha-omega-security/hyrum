@@ -77,8 +77,11 @@ func defaultGenOptions() genOptions {
 func cmdGen(ctx context.Context, args []string) error {
 	fs := newFlags("gen")
 	defaults := defaultGenOptions()
-	var deps stringList
+	var deps, scopes, includes, excludes stringList
 	fs.Var(&deps, "dep", "dependency name to generate for (repeatable); default: all direct runtime deps")
+	fs.Var(&scopes, "scope", "usage scope to include: production, test, example, or documentation (repeatable); default: production")
+	fs.Var(&includes, "include", "relative path prefix to include when indexing usage (repeatable)")
+	fs.Var(&excludes, "exclude", "relative path prefix to exclude when indexing usage (repeatable)")
 	configPath := fs.String("config", "", "configuration file (default: <target>/hyrum.yaml when present)")
 	out := fs.String("out", defaults.out, "output root for generated tests")
 	work := fs.String("work", defaults.work, "working directory for clones and skill workspaces")
@@ -91,6 +94,10 @@ func cmdGen(ctx context.Context, args []string) error {
 	}
 	if fs.NArg() > 1 {
 		return fmt.Errorf("unexpected arguments after <path>: %v (flags must precede <path>)", fs.Args()[1:])
+	}
+	usageOptions, err := resolveUsageOptions(scopes, includes, excludes, []usage.Scope{usage.ScopeProduction})
+	if err != nil {
+		return err
 	}
 	path := "."
 	if fs.NArg() > 0 {
@@ -136,6 +143,7 @@ func cmdGen(ctx context.Context, args []string) error {
 	p := newPipeline(h, resolved.work, resolved.out, *run, resolveContainer(*container))
 	p.models = models
 	p.verify = *verify
+	p.usageOptions = usageOptions
 	return p.genAll(ctx, t, selected)
 }
 
@@ -274,12 +282,13 @@ func resolveModels(h harness.Harness, tiers map[string]string) (map[string]strin
 // skills → write sequence over one or more dependencies of one target.
 // cmdGen and cmdCorpus both drive it.
 type pipeline struct {
-	h       harness.Harness
-	rc      *registries.Client
-	runner  hyrum.Runner
-	work    string
-	outRoot string
-	run     bool
+	h            harness.Harness
+	rc           *registries.Client
+	runner       hyrum.Runner
+	work         string
+	outRoot      string
+	run          bool
+	usageOptions usage.IndexOptions
 	// models maps skill names to backend-owned model IDs resolved from the
 	// portable mid/high/max tiers in hyrum.yaml.
 	models map[string]string
@@ -300,6 +309,7 @@ func newPipeline(h harness.Harness, work, outRoot string, run bool, containerIma
 		work:           work,
 		outRoot:        outRoot,
 		run:            run,
+		usageOptions:   usage.IndexOptions{Scopes: []usage.Scope{usage.ScopeProduction}},
 		containerImage: containerImage,
 	}
 	if containerImage == "" {
@@ -349,7 +359,7 @@ func (p *pipeline) genOne(ctx context.Context, t *hyrum.Target, idx *hyrum.Histo
 	if err := prepareWorkspace(ws); err != nil {
 		return fmt.Errorf("prepare workspace: %w", err)
 	}
-	depDir, latest, err := stageContext(ctx, t, targetDir, d, ws, p.rc)
+	depDir, latest, err := stageContext(ctx, t, targetDir, d, ws, p.rc, p.usageOptions)
 	if err != nil {
 		return fmt.Errorf("stage: %w", err)
 	}
@@ -643,13 +653,21 @@ func remoteBasename(url string) string {
 //	ws/target/            symlink or copy of the target checkout
 //	ws/dep/               shallow clone of the dependency's source repo
 //	ws/dep-outline.md     outline.Pack of ws/dep
-//	ws/usage.json         usage.Index of target against dep
+//	ws/usage.json         scoped static usage of target against dep
 //	ws/context.json       purl, versions, ecosystem
 //
 // Returns the dep clone directory (empty when no repo URL was found) and the
 // dep's latest version from the registry, so callers can pass both to
 // GatherHistory for changelog discovery and range slicing.
-func stageContext(ctx context.Context, t *hyrum.Target, target string, d hyrum.Dep, ws string, rc *registries.Client) (depDir, latest string, err error) {
+func stageContext(
+	ctx context.Context,
+	t *hyrum.Target,
+	target string,
+	d hyrum.Dep,
+	ws string,
+	rc *registries.Client,
+	usageOptions usage.IndexOptions,
+) (depDir, latest string, err error) {
 	if err := os.MkdirAll(ws, 0o755); err != nil {
 		return "", "", err
 	}
@@ -662,7 +680,7 @@ func stageContext(ctx context.Context, t *hyrum.Target, target string, d hyrum.D
 	}
 
 	// Usage surface (works even without the dep clone).
-	surf, err := usage.Index(ctx, t.Path, d.PURL)
+	surf, err := usage.IndexWithOptions(ctx, t.Path, d.PURL, usageOptions)
 	if err != nil {
 		return "", "", fmt.Errorf("usage: %w", err)
 	}

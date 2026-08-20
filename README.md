@@ -192,6 +192,7 @@ local runtimes are required even when `--container` is set.
 ```
 hyrum surface <path>                  per-dep usage summary; no model calls
 hyrum surface --dep X <path>          symbol-level detail for one dep
+hyrum surface --scope test <path>     restrict the summary to test usage
 hyrum gen --dep X --run <path>        generate tests for X into tests/hyrum/
 hyrum gen --dep X --run --verify ...  also run tests at baseline and latest
 hyrum check --dep X@<ver> <path>      run existing tests/hyrum/X against X@ver
@@ -203,6 +204,13 @@ Static indexing and generation cover all ecosystems listed below. Test
 execution is narrower: npm works end to end, PyPI and Go have known scratch
 setup or version-selection gaps, and the other four ecosystems have no runner
 yet.
+
+Static sites are classified as `production`, `test`, `example`, or
+`documentation` from their relative paths. `surface` includes every scope and
+reports separate production, test, and other site counts. `gen` and `corpus`
+stage production sites by default. Repeat `--scope` to select more than one
+scope. `surface` and `gen` also accept repeatable `--include` and `--exclude`
+relative path prefixes; exclusions take precedence.
 
 `gen` stages a workspace with the target's static usage of the dependency
 (`usage.json`), a signature-only outline of the dependency's source
