@@ -53,6 +53,14 @@ type Surface struct {
 // the dependency's own source (outline.Pack) and is filled in by the caller.
 func (s *Surface) UsedCount() int { return len(s.Symbols) }
 
+// IndexResult is one dependency's result from IndexMany. Err applies only to
+// that dependency; errors that stop a shared scan are returned directly by
+// IndexMany.
+type IndexResult struct {
+	Surface *Surface
+	Err     error
+}
+
 // resolver is the SurfaceResolver used to map a dependency PURL to the
 // source-level names it provides. The curated Python catalog runs first so
 // its exact mappings win; the heuristic covers everything else.
@@ -77,26 +85,102 @@ func Ecosystems() []string {
 // Index scans root for source-level references to the dependency identified
 // by depPURL and returns the discovered surface.
 func Index(ctx context.Context, root, depPURL string) (*Surface, error) {
-	p, err := purl.Parse(depPURL)
-	if err != nil {
-		return nil, fmt.Errorf("usage: parse %q: %w", depPURL, err)
-	}
-	sp, ok := specs[p.Type]
-	if !ok {
-		return nil, fmt.Errorf("usage: no indexer for purl type %q (have: %v)", p.Type, Ecosystems())
-	}
-	res, err := resolver.ResolveSurface(ctx, provides.Package{PURL: depPURL}, provides.SurfaceOptions{})
-	if err != nil {
-		return nil, fmt.Errorf("usage: resolve %s: %w", depPURL, err)
-	}
-	s, err := scan(ctx, root, sp, res.Surface.Provides)
+	target, err := resolveTarget(ctx, depPURL)
 	if err != nil {
 		return nil, err
 	}
-	s.PURL = depPURL
-	s.Ecosystem = p.Type
-	s.Dep = purlName(p)
+	s, err := scan(ctx, root, target.spec, target.provided)
+	if err != nil {
+		return nil, err
+	}
+	setSurfaceIdentity(s, target)
 	return s, nil
+}
+
+type resolvedTarget struct {
+	depPURL  string
+	parsed   *purl.PURL
+	spec     spec
+	provided []provides.ProvidedName
+}
+
+func resolveTarget(ctx context.Context, depPURL string) (resolvedTarget, error) {
+	p, err := purl.Parse(depPURL)
+	if err != nil {
+		return resolvedTarget{}, fmt.Errorf("usage: parse %q: %w", depPURL, err)
+	}
+	sp, ok := specs[p.Type]
+	if !ok {
+		return resolvedTarget{}, fmt.Errorf("usage: no indexer for purl type %q (have: %v)", p.Type, Ecosystems())
+	}
+	res, err := resolver.ResolveSurface(ctx, provides.Package{PURL: depPURL}, provides.SurfaceOptions{})
+	if err != nil {
+		return resolvedTarget{}, fmt.Errorf("usage: resolve %s: %w", depPURL, err)
+	}
+	return resolvedTarget{
+		depPURL:  depPURL,
+		parsed:   p,
+		spec:     sp,
+		provided: res.Surface.Provides,
+	}, nil
+}
+
+// IndexMany scans root once per represented ecosystem and returns a result
+// keyed by dependency PURL. Duplicate PURLs are resolved and scanned once.
+func IndexMany(ctx context.Context, root string, depPURLs []string) (map[string]IndexResult, error) {
+	results := make(map[string]IndexResult, len(depPURLs))
+	groups := map[string][]resolvedTarget{}
+	var ecosystems []string
+	seen := map[string]bool{}
+	for _, depPURL := range depPURLs {
+		if seen[depPURL] {
+			continue
+		}
+		seen[depPURL] = true
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		target, resolveErr := resolveTarget(ctx, depPURL)
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if resolveErr != nil {
+			results[depPURL] = IndexResult{Err: resolveErr}
+			continue
+		}
+		ecosystem := target.parsed.Type
+		if len(groups[ecosystem]) == 0 {
+			ecosystems = append(ecosystems, ecosystem)
+		}
+		groups[ecosystem] = append(groups[ecosystem], target)
+	}
+
+	for _, ecosystem := range ecosystems {
+		targets := groups[ecosystem]
+		scanTargets := make([]scanTarget, 0, len(targets))
+		for _, target := range targets {
+			scanTargets = append(scanTargets, scanTarget{
+				key:      target.depPURL,
+				provided: target.provided,
+			})
+		}
+		surfaces, err := scanMany(ctx, root, targets[0].spec, scanTargets)
+		if err != nil {
+			return nil, err
+		}
+		for _, target := range targets {
+			s := surfaces[target.depPURL]
+			setSurfaceIdentity(s, target)
+			results[target.depPURL] = IndexResult{Surface: s}
+		}
+	}
+	return results, nil
+}
+
+func setSurfaceIdentity(s *Surface, target resolvedTarget) {
+	s.PURL = target.depPURL
+	s.Ecosystem = target.parsed.Type
+	s.Dep = purlName(target.parsed)
 }
 
 func purlName(p *purl.PURL) string {

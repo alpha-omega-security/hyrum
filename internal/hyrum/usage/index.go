@@ -88,8 +88,27 @@ var skipDirs = map[string]bool{
 // identifiers as receivers, then calls outline.Refs to collect direct member
 // accesses on those receivers.
 func scan(ctx context.Context, root string, sp spec, provided []provides.ProvidedName) (*Surface, error) {
+	const key = "dependency"
+	surfaces, err := scanMany(ctx, root, sp, []scanTarget{{key: key, provided: provided}})
+	return surfaces[key], err
+}
+
+type scanTarget struct {
+	key      string
+	provided []provides.ProvidedName
+}
+
+func scanMany(
+	ctx context.Context,
+	root string,
+	sp spec,
+	targets []scanTarget,
+) (map[string]*Surface, error) {
 	exts := set(sp.exts...)
-	c := newCollector()
+	collectors := make(map[string]*collector, len(targets))
+	for _, target := range targets {
+		collectors[target.key] = newCollector()
+	}
 
 	err := walkSourceFiles(ctx, root, exts, func(path string) error {
 		src, rerr := os.ReadFile(path)
@@ -100,9 +119,13 @@ func scan(ctx context.Context, root string, sp spec, provided []provides.Provide
 			return err
 		}
 		rel, _ := filepath.Rel(root, path)
-		return scanFile(ctx, c, sp, src, rel, provided)
+		return scanFileMany(ctx, collectors, sp, src, rel, targets)
 	})
-	return c.surface(), err
+	surfaces := make(map[string]*Surface, len(collectors))
+	for key, c := range collectors {
+		surfaces[key] = c.surface()
+	}
+	return surfaces, err
 }
 
 func walkSourceFiles(
@@ -131,16 +154,21 @@ func walkSourceFiles(
 	})
 }
 
-// scanFile records symbols from one file into c. It first extracts import
-// statements and keeps those whose module string matches a provided name,
-// then traces member accesses on the local identifiers those imports bind.
-func scanFile(
+type receiverOwner struct {
+	collector *collector
+	export    string
+}
+
+// scanFileMany records symbols for every target from one parse of the file.
+// It assigns matching imports and receiver references to each target's
+// collector independently.
+func scanFileMany(
 	ctx context.Context,
-	c *collector,
+	collectors map[string]*collector,
 	sp spec,
 	src []byte,
 	rel string,
-	provided []provides.ProvidedName,
+	targets []scanTarget,
 ) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -154,44 +182,127 @@ func scanFile(
 	}
 	lines := strings.Split(string(src), "\n")
 
-	// receivers maps a local identifier to the export-side name that member
-	// accesses on it should be recorded under, so `request as rq` followed
-	// by `rq.args` is recorded as `request.args`.
-	receivers := map[string]string{}
-	if sp.seedProvided {
-		for _, n := range provided {
-			if isIdentifier(n.Name) {
-				receivers[n.Name] = n.Name
-			}
-		}
+	receivers, err := seedReceivers(ctx, sp, targets)
+	if err != nil {
+		return err
 	}
-
-	for _, imp := range imports {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if !matchesAny(provided, imp.Module) {
-			continue
-		}
-		recordImport(c, sp, imp, rel, lineAt(lines, imp.Line), receivers)
+	if err := recordMatchingImports(ctx, collectors, sp, imports, rel, lines, targets, receivers); err != nil {
+		return err
 	}
-	if len(receivers) == 0 {
+	owners := collectReceiverOwners(receivers, collectors)
+	if len(owners) == 0 {
 		return nil
 	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 
-	refs, _ := outline.Refs(src, rel, keys(receivers))
+	refs, _ := outline.Refs(src, rel, keys(owners))
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	return recordRefs(ctx, owners, refs, rel, lines)
+}
+
+// receivers maps each target's local identifiers to export-side names.
+// `request as rq` followed by `rq.args` is therefore recorded as
+// `request.args` in the collector for the package that provided request.
+func seedReceivers(
+	ctx context.Context,
+	sp spec,
+	targets []scanTarget,
+) (map[string]map[string]string, error) {
+	receivers := make(map[string]map[string]string, len(targets))
+	if !sp.seedProvided {
+		return receivers, nil
+	}
+	for _, target := range targets {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		for _, n := range target.provided {
+			if !isIdentifier(n.Name) {
+				continue
+			}
+			if receivers[target.key] == nil {
+				receivers[target.key] = map[string]string{}
+			}
+			receivers[target.key][n.Name] = n.Name
+		}
+	}
+	return receivers, nil
+}
+
+func recordMatchingImports(
+	ctx context.Context,
+	collectors map[string]*collector,
+	sp spec,
+	imports []outline.Import,
+	rel string,
+	lines []string,
+	targets []scanTarget,
+	receivers map[string]map[string]string,
+) error {
+	for _, imp := range imports {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		for _, target := range targets {
+			if !matchesAny(target.provided, imp.Module) {
+				continue
+			}
+			if receivers[target.key] == nil {
+				receivers[target.key] = map[string]string{}
+			}
+			recordImport(
+				collectors[target.key],
+				sp,
+				imp,
+				rel,
+				lineAt(lines, imp.Line),
+				receivers[target.key],
+			)
+		}
+	}
+	return nil
+}
+
+func collectReceiverOwners(
+	receivers map[string]map[string]string,
+	collectors map[string]*collector,
+) map[string][]receiverOwner {
+	owners := map[string][]receiverOwner{}
+	for key, targetReceivers := range receivers {
+		for local, export := range targetReceivers {
+			owners[local] = append(owners[local], receiverOwner{
+				collector: collectors[key],
+				export:    export,
+			})
+		}
+	}
+	return owners
+}
+
+func recordRefs(
+	ctx context.Context,
+	owners map[string][]receiverOwner,
+	refs []outline.Ref,
+	rel string,
+	lines []string,
+) error {
 	for _, ref := range refs {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		base := receivers[ref.Receiver]
-		c.add(base+"."+ref.Member, kindMember, rel, ref.Line, lineAt(lines, ref.Line))
+		for _, owner := range owners[ref.Receiver] {
+			owner.collector.add(
+				owner.export+"."+ref.Member,
+				kindMember,
+				rel,
+				ref.Line,
+				lineAt(lines, ref.Line),
+			)
+		}
 	}
 	return nil
 }
@@ -290,7 +401,7 @@ func lineAt(lines []string, n int) string {
 	return strings.TrimSpace(lines[n-1])
 }
 
-func keys(m map[string]string) []string {
+func keys[V any](m map[string]V) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {
 		out = append(out, k)
