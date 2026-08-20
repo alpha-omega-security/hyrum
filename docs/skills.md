@@ -16,10 +16,10 @@ Before any model step runs, `stageContext` and `GatherHistory` write:
 | file | source | consumed by |
 |---|---|---|
 | `target/` | symlink to the target repository | usage, generate |
-| `dep/` | full clone of the dependency's source repo (best-effort) | history, generate |
+| `dep/` | full clone of the dependency's source repo (best-effort) | history |
 | `usage.json` | scoped imports, refs, and configured activation strings over `target/` | usage, generate |
-| `dep-outline.md` | `outline.Pack` of `dep/`, signature-only | usage, generate |
-| `context.json` | purl, name, ecosystem, baseline version, repo URL, latest version, exported-symbol count | all |
+| `dep-outline.md` | `outline.Pack` of the source tag matching the resolved baseline; absent when no tag matches | usage, generate |
+| `context.json` | purl, name, ecosystem, requested constraint, concrete baseline, repo URL, latest version, outline ref or error, exported-symbol count | all |
 | `git-log.txt` | target commits selected by dependency mentions in messages or changed manifest lines | history |
 | `changelog.json` | `changelog.Between(baseline, latest)` from `dep/` (absent if none found) | history, validate |
 | `vulns.json` | osv.dev advisories for the dep's purl | history |
@@ -53,6 +53,12 @@ recovered model steps.
 
 Reads `usage.json`, `target/`, `dep-outline.md`, `context.json`. Writes
 `surface.json`.
+
+`context.json` records the manifest request in `constraint` and the lowest
+usable registry release in both `baseline` and the compatibility field
+`version`. `outline_ref` names the matched repository tag. When
+`dep-outline.md` is absent, `outline_error` explains the evidence gap and this
+step traces target source without checking members against dependency source.
 
 Static extraction finds import entry points, configured activation strings,
 and same-file member accesses, but the interesting behaviour is often on
@@ -107,6 +113,12 @@ Mid-tier model. An empty `breaks` array is a valid result.
 
 Reads `surface.json` (or `usage.json`), `breaks.json`, `dep-outline.md`,
 `target/`, `dep/`, `context.json`. Writes `tests.json`.
+
+The dependency clone is restored to its default branch after changelog and
+outline collection. Generation therefore uses `dep-outline.md` for baseline
+source evidence and does not substitute `dep/` when the outline is absent.
+The missing outline is retained in the generated suite's `meta.json` as
+`outline_error`; a successful match is retained as `outline_ref`.
 
 Writes one hermetic test per traced call in `surface.json` and one per entry
 in `breaks.json`, importing only the dependency and standard library. The
