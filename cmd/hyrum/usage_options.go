@@ -3,11 +3,23 @@ package main
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	hyrumconfig "github.com/alpha-omega-security/hyrum/internal/config"
 	"github.com/alpha-omega-security/hyrum/internal/hyrum"
 	"github.com/alpha-omega-security/hyrum/internal/hyrum/usage"
 )
+
+func selectUsageSymbols(surface *usage.Surface, names []string) (*usage.Surface, error) {
+	if len(names) == 0 {
+		return surface, nil
+	}
+	selected, missing := usage.SelectSymbols(surface, names)
+	if len(missing) > 0 {
+		return nil, fmt.Errorf("usage symbols not found: %s", strings.Join(missing, ", "))
+	}
+	return selected, nil
+}
 
 func resolveUsageOptions(
 	scopes, includes, excludes stringList,

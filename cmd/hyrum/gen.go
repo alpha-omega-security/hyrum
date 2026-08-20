@@ -27,11 +27,13 @@ import (
 // is fatal because there is nothing to write without it. maxTurns overrides
 // harness.DefaultMaxTurns per skill; the values reflect observed turn counts
 // on small targets with headroom for larger dependencies and changelogs.
-var skillSteps = []struct {
+type skillStep struct {
 	name, out string
 	required  bool
 	maxTurns  int
-}{
+}
+
+var skillSteps = []skillStep{
 	{"hyrum-usage", "surface.json", false, 40},
 	{"hyrum-history", "breaks.json", false, 50},
 	{"hyrum-generate", "tests.json", true, 60},
@@ -77,8 +79,9 @@ func defaultGenOptions() genOptions {
 func cmdGen(ctx context.Context, args []string) error {
 	fs := newFlags("gen")
 	defaults := defaultGenOptions()
-	var deps, scopes, includes, excludes stringList
+	var deps, symbols, scopes, includes, excludes stringList
 	fs.Var(&deps, "dep", "dependency name to generate for (repeatable); default: all direct runtime deps")
+	fs.Var(&symbols, "symbol", "exact dependency symbol to include (repeatable; requires one --dep)")
 	fs.Var(&scopes, "scope", "usage scope to include: production, test, example, or documentation (repeatable); default: production")
 	fs.Var(&includes, "include", "relative path prefix to include when indexing usage (repeatable)")
 	fs.Var(&excludes, "exclude", "relative path prefix to exclude when indexing usage (repeatable)")
@@ -87,6 +90,8 @@ func cmdGen(ctx context.Context, args []string) error {
 	work := fs.String("work", defaults.work, "working directory for clones and skill workspaces")
 	backend := fs.String("backend", defaults.backend, "harness backend: "+harness.Names())
 	run := fs.Bool("run", false, "actually invoke the backend (otherwise stage only)")
+	batchSize := fs.Int("batch-size", 0, "maximum symbol entries per model batch; zero disables this limit")
+	batchSites := fs.Int("batch-sites", 0, "maximum static sites per model batch; zero disables this limit")
 	container := fs.String("container", "", "run the backend in a container using this image (\"default\" for "+hyrum.DefaultRunnerImage+")")
 	verify := fs.Bool("verify", false, "after generating, run the tests against the baseline and latest dep versions and record results in meta.json")
 	if err := fs.Parse(args); err != nil {
@@ -94,6 +99,15 @@ func cmdGen(ctx context.Context, args []string) error {
 	}
 	if fs.NArg() > 1 {
 		return fmt.Errorf("unexpected arguments after <path>: %v (flags must precede <path>)", fs.Args()[1:])
+	}
+	if len(symbols) > 0 && len(deps) != 1 {
+		return fmt.Errorf("--symbol requires exactly one --dep")
+	}
+	if *batchSize < 0 {
+		return fmt.Errorf("--batch-size must be zero or greater")
+	}
+	if *batchSites < 0 {
+		return fmt.Errorf("--batch-sites must be zero or greater")
 	}
 	usageOptions, err := resolveUsageOptions(scopes, includes, excludes, []usage.Scope{usage.ScopeProduction})
 	if err != nil {
@@ -145,6 +159,9 @@ func cmdGen(ctx context.Context, args []string) error {
 	p.models = models
 	p.verify = *verify
 	p.usageOptions = usageOptions
+	p.symbols = append([]string(nil), symbols...)
+	p.batchSize = *batchSize
+	p.batchSites = *batchSites
 	return p.genAll(ctx, t, selected)
 }
 
@@ -290,6 +307,14 @@ type pipeline struct {
 	outRoot      string
 	run          bool
 	usageOptions usage.IndexOptions
+	// symbols limits generation to exact static symbol names.
+	symbols []string
+	// batchSize is the maximum number of symbols sent through model steps in
+	// one batch. Zero disables the symbol limit.
+	batchSize int
+	// batchSites limits static sites per batch and can split one symbol's sites
+	// across batches. Zero disables the site limit.
+	batchSites int
 	// models maps skill names to backend-owned model IDs resolved from the
 	// portable mid/high/max tiers in hyrum.yaml.
 	models map[string]string
@@ -300,6 +325,14 @@ type pipeline struct {
 	// verify runs the generated tests against baseline and latest after
 	// writing them and records results in meta.json.
 	verify bool
+}
+
+type generationExecution struct {
+	Result         *hyrum.RunResult
+	Generate       hyrum.GenerateResult
+	TotalCost      float64
+	RecoveredSteps []string
+	Batch          *batchedGeneration
 }
 
 // newPipeline builds a pipeline from the flags gen and corpus share.
@@ -360,14 +393,29 @@ func (p *pipeline) genOne(ctx context.Context, t *hyrum.Target, idx *hyrum.Histo
 	if err := prepareWorkspace(ws); err != nil {
 		return fmt.Errorf("prepare workspace: %w", err)
 	}
-	depDir, latest, err := stageContext(ctx, t, targetDir, d, ws, p.rc, p.usageOptions)
+	depDir, latest, err := stageContext(ctx, t, targetDir, d, ws, p.rc, p.usageOptions, p.symbols)
 	if err != nil {
 		return fmt.Errorf("stage: %w", err)
+	}
+	var batches []*usage.Surface
+	if p.batchingEnabled() {
+		surface, err := readUsageSurface(filepath.Join(ws, "usage.json"))
+		if err != nil {
+			return fmt.Errorf("read staged usage: %w", err)
+		}
+		batches = usage.PartitionSurface(surface, p.batchSize, p.batchSites)
+		if err := stageUsageBatches(ws, batches); err != nil {
+			return fmt.Errorf("stage usage batches: %w", err)
+		}
 	}
 	if err := hyrum.GatherHistory(ctx, idx, d, depDir, latest, ws); err != nil {
 		fmt.Fprintf(os.Stderr, "  %s: history: %v\n", d.Name, err)
 	}
 	if !p.run {
+		if p.batchingEnabled() {
+			fmt.Printf("staged %s: %d batch(es) under %s; --run executes and merges them\n", d.Name, len(batches), filepath.Join(ws, "batches"))
+			return nil
+		}
 		last := skillSteps[len(skillSteps)-1]
 		job := harness.Job{
 			Workspace: ws, SrcDir: hyrum.TargetSubdir, SkillName: last.name,
@@ -382,20 +430,23 @@ func (p *pipeline) genOne(ctx context.Context, t *hyrum.Target, idx *hyrum.Histo
 	if runner == nil {
 		runner = hyrum.ContainerRunner{Image: p.containerImage, TargetPath: t.Path}
 	}
-	res, totalCost, recoveredSteps, err := p.runGenerateSkills(ctx, runner, ws, d.Name)
+	execution, err := p.runSelectedGeneration(ctx, runner, ws, d.Name, batches)
 	if err != nil {
 		return err
 	}
-	var gen hyrum.GenerateResult
-	if err := res.Decode(&gen); err != nil {
-		return fmt.Errorf("decode tests.json: %w", err)
-	}
+	res := execution.Result
+	gen := execution.Generate
+	totalCost := execution.TotalCost
+	recoveredSteps := execution.RecoveredSteps
 
 	written, err := hyrum.ReplaceFilesUnder(p.outRoot, outRel, gen.Files)
 	if err != nil {
 		return fmt.Errorf("write: %w", err)
 	}
 	meta := generationMeta(targetDir, d, res, gen, totalCost)
+	if execution.Batch != nil {
+		addBatchMetadata(meta, p.batchSize, p.batchSites, execution.Batch)
+	}
 	if p.verify {
 		verify := p.runVerify(ctx, ws, d, latest, gen.Files)
 		meta["verify"] = verify
@@ -420,6 +471,39 @@ func (p *pipeline) genOne(ctx context.Context, t *hyrum.Target, idx *hyrum.Histo
 	return nil
 }
 
+func (p *pipeline) runSelectedGeneration(
+	ctx context.Context,
+	runner hyrum.Runner,
+	ws, depName string,
+	batches []*usage.Surface,
+) (*generationExecution, error) {
+	if p.batchingEnabled() {
+		run, err := p.runBatchedGenerateSkills(ctx, runner, ws, depName, batches)
+		if err != nil {
+			return nil, err
+		}
+		return &generationExecution{
+			Result: run.LastResult, Generate: run.Generate, TotalCost: run.TotalCost,
+			RecoveredSteps: run.RecoveredSteps, Batch: run,
+		}, nil
+	}
+	result, cost, recovered, err := p.runGenerateSkills(ctx, runner, ws, depName)
+	if err != nil {
+		return nil, err
+	}
+	var generated hyrum.GenerateResult
+	if err := result.Decode(&generated); err != nil {
+		return nil, fmt.Errorf("decode tests.json: %w", err)
+	}
+	return &generationExecution{
+		Result: result, Generate: generated, TotalCost: cost, RecoveredSteps: recovered,
+	}, nil
+}
+
+func (p *pipeline) batchingEnabled() bool {
+	return p.batchSize > 0 || p.batchSites > 0
+}
+
 var transientWorkspaceFiles = []string{
 	"dep-outline.md",
 	"git-log.txt",
@@ -433,12 +517,19 @@ var transientWorkspaceFiles = []string{
 	"schema.json",
 }
 
+var transientWorkspaceDirs = []string{"batches"}
+
 func prepareWorkspace(ws string) error {
 	if err := os.MkdirAll(ws, 0o755); err != nil {
 		return err
 	}
 	for _, name := range transientWorkspaceFiles {
 		if err := os.Remove(filepath.Join(ws, name)); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove stale %s: %w", name, err)
+		}
+	}
+	for _, name := range transientWorkspaceDirs {
+		if err := os.RemoveAll(filepath.Join(ws, name)); err != nil {
 			return fmt.Errorf("remove stale %s: %w", name, err)
 		}
 	}
@@ -458,17 +549,14 @@ func (p *pipeline) runGenerateSkills(ctx context.Context, runner hyrum.Runner, w
 	var totalCost float64
 	var recoveredSteps []string
 	for _, s := range skillSteps {
-		fmt.Fprintf(os.Stderr, "  [%s]\n", s.name)
-		r, err := runner.RunSkill(ctx, p.h, ws, s.name, s.out, hyrum.RunOptions{Model: p.models[s.name], MaxTurns: s.maxTurns})
+		r, err := p.runGenerationStep(ctx, runner, ws, depName, s)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "  %s/%s: %v\n", depName, s.name, err)
 			if s.required {
 				return nil, totalCost, recoveredSteps, err
 			}
 			continue
 		}
 		if r.BackendError != "" {
-			fmt.Fprintf(os.Stderr, "  ! %s/%s: %s\n", depName, s.name, r.BackendError)
 			recoveredSteps = append(recoveredSteps, s.name)
 		}
 		totalCost += r.CostUSD
@@ -478,6 +566,26 @@ func (p *pipeline) runGenerateSkills(ctx context.Context, runner hyrum.Runner, w
 		return nil, totalCost, recoveredSteps, fmt.Errorf("generate produced no output")
 	}
 	return res, totalCost, recoveredSteps, nil
+}
+
+func (p *pipeline) runGenerationStep(
+	ctx context.Context,
+	runner hyrum.Runner,
+	ws, depName string,
+	step skillStep,
+) (*hyrum.RunResult, error) {
+	fmt.Fprintf(os.Stderr, "  [%s]\n", step.name)
+	result, err := runner.RunSkill(ctx, p.h, ws, step.name, step.out, hyrum.RunOptions{
+		Model: p.models[step.name], MaxTurns: step.maxTurns,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  %s/%s: %v\n", depName, step.name, err)
+		return nil, err
+	}
+	if result.BackendError != "" {
+		fmt.Fprintf(os.Stderr, "  ! %s/%s: %s\n", depName, step.name, result.BackendError)
+	}
+	return result, nil
 }
 
 func generationMeta(targetDir string, d hyrum.Dep, res *hyrum.RunResult, gen hyrum.GenerateResult, totalCost float64) map[string]any {
@@ -668,6 +776,7 @@ func stageContext(
 	ws string,
 	rc *registries.Client,
 	usageOptions usage.IndexOptions,
+	symbols []string,
 ) (depDir, latest string, err error) {
 	if err := os.MkdirAll(ws, 0o755); err != nil {
 		return "", "", err
@@ -682,6 +791,10 @@ func stageContext(
 
 	// Usage surface (works even without the dep clone).
 	surf, err := usage.IndexWithOptions(ctx, t.Path, d.PURL, usageOptions)
+	if err != nil {
+		return "", "", fmt.Errorf("usage: %w", err)
+	}
+	surf, err = selectUsageSymbols(surf, symbols)
 	if err != nil {
 		return "", "", fmt.Errorf("usage: %w", err)
 	}

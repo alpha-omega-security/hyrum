@@ -76,3 +76,17 @@ func TestResolveUsageOptionsRejectsUnknownScopeAndUnsafePath(t *testing.T) {
 		t.Error("absolute exclude path accepted")
 	}
 }
+
+func TestSelectUsageSymbolsReturnsExactSortedMatches(t *testing.T) {
+	surface := &usage.Surface{Symbols: []usage.Symbol{{Name: "Session.get"}, {Name: "Session"}}}
+	selected, err := selectUsageSymbols(surface, []string{"Session.get"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(selected.Symbols) != 1 || selected.Symbols[0].Name != "Session.get" {
+		t.Fatalf("selected = %+v", selected.Symbols)
+	}
+	if _, err := selectUsageSymbols(surface, []string{"session.get"}); err == nil {
+		t.Fatal("case-mismatched symbol accepted")
+	}
+}

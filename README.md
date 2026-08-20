@@ -198,8 +198,11 @@ local runtimes are required even when `--container` is set.
 ```
 hyrum surface <path>                  per-dep usage summary; no model calls
 hyrum surface --dep X <path>          symbol-level detail for one dep
+hyrum surface --dep X --symbol X.y ... inspect selected exact symbols
 hyrum surface --scope test <path>     restrict the summary to test usage
 hyrum gen --dep X --run <path>        generate tests for X into tests/hyrum/
+hyrum gen --dep X --batch-size 40 ... cap each model batch at 40 symbols
+hyrum gen --dep X --batch-sites 500 ... cap each model batch at 500 sites
 hyrum gen --dep X --run --verify ...  also run tests at baseline and latest
 hyrum check --dep X@<ver> <path>      run existing tests/hyrum/X against X@ver
 hyrum corpus --upstream <purl> \
@@ -216,17 +219,31 @@ Static sites are classified as `production`, `test`, `example`, or
 reports separate production, test, and other site counts. `gen` and `corpus`
 stage production sites by default. Repeat `--scope` to select more than one
 scope. `surface` and `gen` also accept repeatable `--include` and `--exclude`
-relative path prefixes; exclusions take precedence.
+relative path prefixes; exclusions take precedence. Repeatable `--symbol`
+values select exact, case-sensitive static symbol names and require one
+explicit `--dep`.
+
+`gen --batch-size N` caps symbol entries per model batch, while
+`--batch-sites N` caps static sites. The selected symbols and their sites are
+sorted before partitioning. A symbol with more sites than the limit is split
+across batches. History mining runs once, and its contracts are included in
+the first batch. When a run needs several batches, generated files are placed
+under `batch-001/`, `batch-002/`, and so on within the dependency suite.
+Verification and validation run once over the merged files and traced surface.
+`meta.json` records the symbols, site count, backend session, cost, notes, and
+recovered steps for each batch. A staging run without `--run` writes each
+batch's `usage.json` under the workspace's `batches/` directory for inspection.
 
 `gen` stages a workspace with the target's static usage of the dependency
 (`usage.json`), a signature-only outline of the dependency's source
 (`dep-outline.md`), the target's git commits mentioning the dependency, its
-OSV advisories, and its parsed changelog. Three model steps then run in
-sequence: `hyrum-usage` follows the static entry points through instances and
-options bags to record the actual call surface; `hyrum-history` filters the
-history inputs down to a list of past compatibility fixes with evidence for
-each; `hyrum-generate` writes tests that mirror the observed calls and cite
-the source line or commit each was derived from. With `--verify`, supported
+OSV advisories, and its parsed changelog. Without batching, three model steps
+run in sequence: `hyrum-usage` follows the static entry points through
+instances and options bags to record the actual call surface;
+`hyrum-history` filters the history inputs down to a list of past compatibility
+fixes with evidence for each; `hyrum-generate` writes tests that mirror the
+observed calls and cite the source line or commit each was derived from. With
+`--verify`, supported
 tests are run in a scratch directory against the target's baseline version and
 the dependency's latest release. A fourth `hyrum-validate` step then classifies
 latest-version failures as real behaviour changes, over-specific assertions,

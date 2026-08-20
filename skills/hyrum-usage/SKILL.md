@@ -18,7 +18,7 @@ Your working directory is the workspace root. Every path below is relative to it
 
 - `target/` — the repository whose usage you are tracing (read-only)
 - `dep-outline.md` — signature-only outline of the dependency's public surface
-- `usage.json`: static entry points: `{symbols: [{name, kind, sites: [{file, line, context, scope}]}]}`
+- `usage.json`: static entry points in the form `{symbols: [{name, kind, sites: [{file, line, context, scope}]}]}`. With batching, this contains the current name-sorted symbol subset.
 - `context.json` — `{purl, name, ecosystem, version, repo, latest, target}`
 - `surface.json` — write your output here per `schema.json`
 
