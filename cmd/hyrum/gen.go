@@ -335,6 +335,22 @@ type generationExecution struct {
 	Batch          *batchedGeneration
 }
 
+type stagedDependency struct {
+	DepDir        string
+	Latest        string
+	Baseline      string
+	BaselineError string
+	OutlineRef    string
+	OutlineError  string
+}
+
+type registryDependency struct {
+	Repository    string
+	Latest        string
+	Baseline      string
+	BaselineError string
+}
+
 // newPipeline builds a pipeline from the flags gen and corpus share.
 func newPipeline(h harness.Harness, work, outRoot string, run bool, containerImage string) *pipeline {
 	p := &pipeline{
@@ -393,7 +409,7 @@ func (p *pipeline) genOne(ctx context.Context, t *hyrum.Target, idx *hyrum.Histo
 	if err := prepareWorkspace(ws); err != nil {
 		return fmt.Errorf("prepare workspace: %w", err)
 	}
-	depDir, latest, err := stageContext(ctx, t, targetDir, d, ws, p.rc, p.usageOptions, p.symbols)
+	staged, err := stageContext(ctx, t, targetDir, d, ws, p.rc, p.usageOptions, p.symbols)
 	if err != nil {
 		return fmt.Errorf("stage: %w", err)
 	}
@@ -408,7 +424,9 @@ func (p *pipeline) genOne(ctx context.Context, t *hyrum.Target, idx *hyrum.Histo
 			return fmt.Errorf("stage usage batches: %w", err)
 		}
 	}
-	if err := hyrum.GatherHistory(ctx, idx, d, depDir, latest, ws); err != nil {
+	historyDep := d
+	historyDep.Version = staged.Baseline
+	if err := hyrum.GatherHistory(ctx, idx, historyDep, staged.DepDir, staged.Latest, ws); err != nil {
 		fmt.Fprintf(os.Stderr, "  %s: history: %v\n", d.Name, err)
 	}
 	if !p.run {
@@ -443,12 +461,12 @@ func (p *pipeline) genOne(ctx context.Context, t *hyrum.Target, idx *hyrum.Histo
 	if err != nil {
 		return fmt.Errorf("write: %w", err)
 	}
-	meta := generationMeta(targetDir, d, res, gen, totalCost)
+	meta := generationMeta(targetDir, d, staged, res, gen, totalCost)
 	if execution.Batch != nil {
 		addBatchMetadata(meta, p.batchSize, p.batchSites, execution.Batch)
 	}
 	if p.verify {
-		verify := p.runVerify(ctx, ws, d, latest, gen.Files)
+		verify := p.runVerify(ctx, ws, d, staged.Baseline, staged.Latest, gen.Files)
 		meta["verify"] = verify
 		v, cost, recovery, err := p.runValidate(ctx, runner, ws, verify)
 		if err != nil {
@@ -588,16 +606,27 @@ func (p *pipeline) runGenerationStep(
 	return result, nil
 }
 
-func generationMeta(targetDir string, d hyrum.Dep, res *hyrum.RunResult, gen hyrum.GenerateResult, totalCost float64) map[string]any {
-	return map[string]any{
+func generationMeta(targetDir string, d hyrum.Dep, staged stagedDependency, res *hyrum.RunResult, gen hyrum.GenerateResult, totalCost float64) map[string]any {
+	meta := map[string]any{
 		"purl":       d.PURL,
 		"ecosystem":  d.Ecosystem,
-		"baseline":   d.Version,
+		"constraint": d.Version,
+		"baseline":   staged.Baseline,
 		"target":     targetDir,
 		"session_id": res.SessionID,
 		"cost_usd":   totalCost,
 		"notes":      gen.Notes,
 	}
+	if staged.BaselineError != "" {
+		meta["baseline_error"] = staged.BaselineError
+	}
+	if staged.OutlineError != "" {
+		meta["outline_error"] = staged.OutlineError
+	}
+	if staged.OutlineRef != "" {
+		meta["outline_ref"] = staged.OutlineRef
+	}
+	return meta
 }
 
 // runValidate stages the verify results and runs the hyrum-validate skill to
@@ -653,7 +682,10 @@ func reportVerdicts(vs []hyrum.Verdict) {
 // runVerify installs the dep at baseline and latest in a scratch dir under
 // the workspace and runs the generated tests against each. The scratch dir is
 // separate from the target so the user's checkout and lockfile are untouched.
-func (p *pipeline) runVerify(ctx context.Context, ws string, d hyrum.Dep, latest string, files []hyrum.GeneratedFile) []hyrum.VerifyResult {
+func (p *pipeline) runVerify(ctx context.Context, ws string, d hyrum.Dep, baseline, latest string, files []hyrum.GeneratedFile) []hyrum.VerifyResult {
+	if baseline == "" {
+		return []hyrum.VerifyResult{{Error: "baseline version is unresolved"}}
+	}
 	tc, ok := testRunners[d.Ecosystem]
 	if !ok {
 		return []hyrum.VerifyResult{{Error: "no test runner for ecosystem " + d.Ecosystem}}
@@ -667,7 +699,7 @@ func (p *pipeline) runVerify(ctx context.Context, ws string, d hyrum.Dep, latest
 	if err != nil {
 		return []hyrum.VerifyResult{{Error: fmt.Sprintf("manager for %s: %v", d.Ecosystem, err)}}
 	}
-	versions := []string{constraintVersion(d.Version, d.Ecosystem), latest}
+	versions := []string{baseline, latest}
 	fmt.Fprintf(os.Stderr, "  [verify] %s at %v\n", d.Name, versions)
 	results := hyrum.VerifyMatrix(ctx, mgr, hyrum.TestCommand(tc), scratch, d.Name, files, versions)
 	for _, r := range results {
@@ -678,25 +710,6 @@ func (p *pipeline) runVerify(ctx context.Context, ws string, d hyrum.Dep, latest
 		}
 	}
 	return results
-}
-
-// constraintVersion returns an installable version from a manifest constraint
-// under the given ecosystem's native syntax (^/~ for npm, ~> for gem, ~= for
-// pypi, ...). The returned version is the range's inclusive lower bound;
-// upper-bound-only or wildcard constraints return "".
-func constraintVersion(v, ecosystem string) string {
-	if v == "" {
-		return ""
-	}
-	r, err := vers.ParseNative(v, ecosystem)
-	if err != nil {
-		return ""
-	}
-	minimum, ok := r.MinimumVersion()
-	if !ok {
-		return ""
-	}
-	return minimum
 }
 
 // resolveContainer maps the --container flag value to an image name. Empty
@@ -760,14 +773,14 @@ func remoteBasename(url string) string {
 // stageContext writes the per-dependency context bundle into ws:
 //
 //	ws/target/            symlink or copy of the target checkout
-//	ws/dep/               shallow clone of the dependency's source repo
-//	ws/dep-outline.md     outline.Pack of ws/dep
+//	ws/dep/               full clone of the dependency's source repo
+//	ws/dep-outline.md     outline.Pack of the resolved baseline tag
 //	ws/usage.json         scoped static usage of target against dep
 //	ws/context.json       purl, versions, ecosystem
 //
-// Returns the dep clone directory (empty when no repo URL was found) and the
-// dep's latest version from the registry, so callers can pass both to
-// GatherHistory for changelog discovery and range slicing.
+// The returned staging result carries the dep clone directory, resolved
+// baseline, latest registry version, and any evidence gaps that later metadata
+// and verification must preserve.
 func stageContext(
 	ctx context.Context,
 	t *hyrum.Target,
@@ -777,115 +790,149 @@ func stageContext(
 	rc *registries.Client,
 	usageOptions usage.IndexOptions,
 	symbols []string,
-) (depDir, latest string, err error) {
+) (staged stagedDependency, err error) {
 	if err := os.MkdirAll(ws, 0o755); err != nil {
-		return "", "", err
+		return staged, err
 	}
 
 	// Target: symlink so the skill sees the real tree without a copy.
 	targetLink := filepath.Join(ws, hyrum.TargetSubdir)
 	_ = os.Remove(targetLink)
 	if err := os.Symlink(t.Path, targetLink); err != nil {
-		return "", "", fmt.Errorf("link target: %w", err)
+		return staged, fmt.Errorf("link target: %w", err)
 	}
 
 	// Usage surface (works even without the dep clone).
 	surf, err := usage.IndexWithOptions(ctx, t.Path, d.PURL, usageOptions)
 	if err != nil {
-		return "", "", fmt.Errorf("usage: %w", err)
+		return staged, fmt.Errorf("usage: %w", err)
 	}
 	surf, err = selectUsageSymbols(surf, symbols)
 	if err != nil {
-		return "", "", fmt.Errorf("usage: %w", err)
+		return staged, fmt.Errorf("usage: %w", err)
 	}
 	if err := writeJSON(filepath.Join(ws, "usage.json"), surf); err != nil {
-		return "", "", err
+		return staged, err
 	}
 
-	// Dep source + outline: best-effort. Registries gives the repo URL;
-	// clone.Ensure gives a shallow checkout; outline.Pack reduces it.
-	var repoURL string
-	var rerr error
-	repoURL, latest, rerr = lookupRepo(ctx, rc, d)
+	// Dep source + outline: best-effort. Registry metadata supplies the repo
+	// URL; clone.Ensure maintains a full checkout; outline.Pack reduces it.
+	registryInfo, rerr := lookupDependency(ctx, rc, d)
+	staged.Latest = registryInfo.Latest
+	staged.Baseline = registryInfo.Baseline
+	staged.BaselineError = registryInfo.BaselineError
+	if rerr != nil {
+		staged.BaselineError = fmt.Sprintf("registry metadata: %v", rerr)
+	}
 	meta := map[string]any{
-		"purl":      d.PURL,
-		"name":      d.Name,
-		"ecosystem": d.Ecosystem,
-		"version":   d.Version,
-		"repo":      repoURL,
-		"latest":    latest,
-		"target":    target,
+		"purl":       d.PURL,
+		"name":       d.Name,
+		"ecosystem":  d.Ecosystem,
+		"constraint": d.Version,
+		"version":    staged.Baseline,
+		"baseline":   staged.Baseline,
+		"repo":       registryInfo.Repository,
+		"latest":     staged.Latest,
+		"target":     target,
 	}
 	if rerr != nil {
 		meta["registry_error"] = rerr.Error()
 	}
+	if staged.BaselineError != "" {
+		meta["baseline_error"] = staged.BaselineError
+		fmt.Fprintf(os.Stderr, "  %s: baseline: %s\n", d.Name, staged.BaselineError)
+	}
+	if registryInfo.Repository == "" {
+		staged.OutlineError = "dependency repository URL is unavailable"
+		meta["outline_error"] = staged.OutlineError
+		fmt.Fprintf(os.Stderr, "  %s: outline unavailable: %s\n", d.Name, staged.OutlineError)
+	}
 	if err := writeJSON(filepath.Join(ws, "context.json"), meta); err != nil {
-		return "", latest, err
+		return staged, err
 	}
-	if repoURL == "" {
-		return "", latest, nil
+	if registryInfo.Repository == "" {
+		return staged, nil
 	}
-	depDir = filepath.Join(ws, "dep")
+	staged.DepDir = filepath.Join(ws, "dep")
 	// Full clone: hyrum-history diffs between version tags and reads
 	// History.md at old refs, which a shallow clone cannot serve. The dep
 	// clone is reused across runs via Ensure so the cost is one-time.
 	// The dep clone and everything derived from it is best-effort: a bad
 	// repository URL from the registry (or none) means the skills run with
 	// usage.json and git-log.txt only.
-	if err := clone.Ensure(ctx, clone.Retry{}, repoURL, depDir, "", true); err != nil {
-		fmt.Fprintf(os.Stderr, "  clone %s: %v (continuing without dep source)\n", repoURL, err)
-		return "", latest, nil
+	if err := clone.Ensure(ctx, clone.Retry{}, registryInfo.Repository, staged.DepDir, "", true); err != nil {
+		fmt.Fprintf(os.Stderr, "  clone %s: %v (continuing without dep source)\n", registryInfo.Repository, err)
+		staged.OutlineError = fmt.Sprintf("clone dependency source: %v", err)
+		meta["outline_error"] = staged.OutlineError
+		staged.DepDir = ""
+		if writeErr := writeJSON(filepath.Join(ws, "context.json"), meta); writeErr != nil {
+			return staged, writeErr
+		}
+		return staged, nil
 	}
-	// Outline the dependency at the version the target actually pins so
+	// Outline the dependency at the resolved baseline release so
 	// generated tests reference the baseline API rather than symbols added or
 	// changed since. The working tree is restored afterwards so writeChangelog
 	// (in GatherHistory) still reads the up-to-date changelog. Both trees are
 	// stripped of instruction files because the skill later reads dep/ directly.
-	restore := checkoutVersion(ctx, depDir, d.Version, d.Ecosystem)
-	if _, err := harness.StripDirectives(depDir); err != nil {
-		restore()
-		return depDir, latest, fmt.Errorf("strip %s: %w", depDir, err)
+	restore, tag, matched := checkoutVersion(ctx, staged.DepDir, staged.Baseline, d.Ecosystem)
+	if !matched {
+		if _, err := harness.StripDirectives(staged.DepDir); err != nil {
+			return staged, fmt.Errorf("strip %s: %w", staged.DepDir, err)
+		}
+		if staged.Baseline != "" {
+			staged.OutlineError = fmt.Sprintf("no source tag matched resolved baseline %s", staged.Baseline)
+			fmt.Fprintf(os.Stderr, "  %s: outline unavailable: %s\n", d.Name, staged.OutlineError)
+		} else {
+			staged.OutlineError = "dependency outline unavailable because the baseline version is unresolved"
+		}
+		meta["outline_error"] = staged.OutlineError
+		if err := writeJSON(filepath.Join(ws, "context.json"), meta); err != nil {
+			return staged, err
+		}
+		return staged, nil
 	}
-	res, err := outline.Pack(depDir, outline.Options{Compress: true, Ignore: depOutlineIgnore})
+	staged.OutlineRef = tag
+	meta["outline_ref"] = tag
+	if _, err := harness.StripDirectives(staged.DepDir); err != nil {
+		restore()
+		return staged, fmt.Errorf("strip %s: %w", staged.DepDir, err)
+	}
+	res, err := outline.Pack(staged.DepDir, outline.Options{Compress: true, Ignore: depOutlineIgnore})
 	restore()
-	if _, serr := harness.StripDirectives(depDir); serr != nil {
-		return depDir, latest, fmt.Errorf("strip %s: %w", depDir, serr)
+	if _, serr := harness.StripDirectives(staged.DepDir); serr != nil {
+		return staged, fmt.Errorf("strip %s: %w", staged.DepDir, serr)
 	}
 	if err != nil {
-		return depDir, latest, fmt.Errorf("outline: %w", err)
+		return staged, fmt.Errorf("outline: %w", err)
 	}
 	meta["exported_symbols"] = countExported(res)
 	if err := writeJSON(filepath.Join(ws, "context.json"), meta); err != nil {
-		return depDir, latest, err
+		return staged, err
 	}
 	f, err := os.Create(filepath.Join(ws, "dep-outline.md"))
 	if err != nil {
-		return depDir, latest, err
+		return staged, err
 	}
 	defer f.Close()
-	return depDir, latest, res.Markdown(f)
+	return staged, res.Markdown(f)
 }
 
 // checkoutVersion moves dir's working tree to the git tag matching version and
-// returns a function that restores the previous ref. Both operations are
-// best-effort: an unmatched tag or a non-git dir yields a no-op restore and the
-// caller proceeds with whatever tree Ensure produced. Registries report
-// versions with or without a leading v depending on ecosystem, and repositories
-// tag with or without one independently of that, so both spellings are tried.
-// Native manifest constraints are reduced to their inclusive lower bound first.
+// returns a function that restores the previous ref, the matching tag, and
+// whether checkout succeeded. Registries report versions with or without a
+// leading v depending on ecosystem, and repositories tag with or without one
+// independently of that, so both spellings are tried.
 // The checkout is forced because StripDirectives from a prior run in the same
 // --work directory can leave tracked deletions in the reused clone.
-func checkoutVersion(ctx context.Context, dir, version, ecosystem string) (restore func()) {
+func checkoutVersion(ctx context.Context, dir, version, ecosystem string) (restore func(), tag string, matched bool) {
 	noop := func() {}
 	if version == "" {
-		return noop
-	}
-	if baseline := constraintVersion(version, ecosystem); baseline != "" {
-		version = baseline
+		return noop, "", false
 	}
 	candidates, err := vers.TagCandidates(version, ecosystem)
 	if err != nil {
-		return noop
+		return noop, "", false
 	}
 	for _, tag := range candidates {
 		restoreCheckout, err := clone.CheckoutTag(ctx, dir, tag)
@@ -894,10 +941,9 @@ func checkoutVersion(ctx context.Context, dir, version, ecosystem string) (resto
 		}
 		return func() {
 			_ = restoreCheckout(context.WithoutCancel(ctx))
-		}
+		}, tag, true
 	}
-	fmt.Fprintf(os.Stderr, "  no tag for %s in %s; outlining default branch\n", version, dir)
-	return noop
+	return noop, "", false
 }
 
 // countExported returns the number of exported top-level declarations across
@@ -931,15 +977,59 @@ func isTestPath(p string) bool {
 	return false
 }
 
-func lookupRepo(ctx context.Context, rc *registries.Client, d hyrum.Dep) (repoURL, latest string, err error) {
+func lookupDependency(ctx context.Context, rc *registries.Client, d hyrum.Dep) (registryDependency, error) {
 	if d.PURL == "" {
-		return "", "", fmt.Errorf("no purl for %s", d.Name)
+		return registryDependency{}, fmt.Errorf("no purl for %s", d.Name)
 	}
-	pkg, err := registries.FetchPackageFromPURL(ctx, d.PURL, rc)
+	registry, name, _, err := registries.NewFromPURL(d.PURL, rc)
 	if err != nil {
-		return "", "", err
+		return registryDependency{}, err
 	}
-	return pkg.Repository, pkg.LatestVersion, nil
+	pkg, err := registry.FetchPackage(ctx, name)
+	if err != nil {
+		return registryDependency{}, err
+	}
+	info := registryDependency{Repository: pkg.Repository, Latest: pkg.LatestVersion}
+	versions, err := registry.FetchVersions(ctx, name)
+	if err != nil {
+		info.BaselineError = fmt.Sprintf("fetch registry versions: %v", err)
+		return info, nil
+	}
+	info.Baseline, err = resolveBaseline(d.Version, d.Ecosystem, versions)
+	if err != nil {
+		info.BaselineError = err.Error()
+	}
+	return info, nil
+}
+
+func resolveBaseline(constraint, ecosystem string, versions []registries.Version) (string, error) {
+	if constraint == "" {
+		return "", fmt.Errorf("manifest has no baseline constraint")
+	}
+	rangeValue, err := vers.ParseNative(constraint, ecosystem)
+	if err != nil {
+		return "", fmt.Errorf("parse baseline constraint %q: %w", constraint, err)
+	}
+	_, exact := rangeValue.ExactVersion()
+	baseline := ""
+	for _, version := range versions {
+		if version.Number == "" {
+			continue
+		}
+		if !exact && (version.Status == registries.StatusYanked || version.Status == registries.StatusRetracted) {
+			continue
+		}
+		if !vers.ValidWithScheme(version.Number, ecosystem) || !rangeValue.Contains(version.Number) {
+			continue
+		}
+		if baseline == "" || vers.CompareWithScheme(version.Number, baseline, ecosystem) < 0 {
+			baseline = version.Number
+		}
+	}
+	if baseline == "" {
+		return "", fmt.Errorf("no usable registry release satisfies baseline constraint %q", constraint)
+	}
+	return baseline, nil
 }
 
 func selectDeps(t *hyrum.Target, names stringList) []hyrum.Dep {
