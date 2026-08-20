@@ -226,7 +226,8 @@ func TestResolveGenOptionsPrecedence(t *testing.T) {
 	configPath := filepath.Join(configDir, "hyrum.yaml")
 	target := t.TempDir()
 	backend, configOut, configWork := "codex", "configured/out", "configured/work"
-	cfg := hyrumconfig.File{Backend: &backend, Out: &configOut, Work: &configWork}
+	configOutlineBytes := 131072
+	cfg := hyrumconfig.File{Backend: &backend, Out: &configOut, Work: &configWork, OutlineBytes: &configOutlineBytes}
 
 	t.Run("discovered config cannot set work", func(t *testing.T) {
 		got, err := resolveGenOptions(target, configPath, false, cfg, defaultGenOptions(), nil)
@@ -241,6 +242,9 @@ func TestResolveGenOptionsPrecedence(t *testing.T) {
 		}
 		if got.work != defaultGenOptions().work {
 			t.Errorf("work = %q", got.work)
+		}
+		if got.outlineBytes != configOutlineBytes {
+			t.Errorf("outline bytes = %d", got.outlineBytes)
 		}
 	})
 
@@ -259,12 +263,13 @@ func TestResolveGenOptionsPrecedence(t *testing.T) {
 		cli.backend = "claude" // Deliberately equal to the built-in default.
 		cli.out = "cli/out"
 		cli.work = "cli/work"
-		set := map[string]bool{"backend": true, "out": true, "work": true}
+		cli.outlineBytes = 65536
+		set := map[string]bool{"backend": true, "out": true, "work": true, "outline-bytes": true}
 		got, err := resolveGenOptions(target, configPath, false, cfg, cli, set)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got.backend != "claude" || got.out != filepath.Join(target, "cli/out") || got.work != "cli/work" {
+		if got.backend != "claude" || got.out != filepath.Join(target, "cli/out") || got.work != "cli/work" || got.outlineBytes != 65536 {
 			t.Fatalf("resolved = %+v", got)
 		}
 	})
@@ -405,6 +410,9 @@ func TestCmdGenValidatesSymbolAndBatchSelectionBeforeAnalysis(t *testing.T) {
 	}
 	if err := cmdGen(t.Context(), []string{"--batch-sites", "-1", t.TempDir()}); err == nil || !strings.Contains(err.Error(), "--batch-sites must be zero or greater") {
 		t.Fatalf("batch sites error = %v", err)
+	}
+	if err := cmdGen(t.Context(), []string{"--outline-bytes", "0", t.TempDir()}); err == nil || !strings.Contains(err.Error(), "--outline-bytes must be greater than zero") {
+		t.Fatalf("outline bytes error = %v", err)
 	}
 }
 
@@ -692,8 +700,12 @@ func TestConfiguredBaselineReachesMetadata(t *testing.T) {
 
 func TestGenerationMetaPreservesBaselineEvidenceGaps(t *testing.T) {
 	staged := stagedDependency{
-		Baseline:   "8.10.0",
-		OutlineRef: "v8.10.0",
+		Baseline:            "8.10.0",
+		OutlineRef:          "v8.10.0",
+		OutlineBudgetBytes:  262144,
+		OutlineBytes:        71234,
+		OutlineFiles:        4,
+		OutlineOmittedFiles: 500,
 	}
 	meta := generationMeta(
 		"target",
@@ -708,6 +720,9 @@ func TestGenerationMetaPreservesBaselineEvidenceGaps(t *testing.T) {
 	}
 	if meta["outline_ref"] != staged.OutlineRef {
 		t.Fatalf("evidence metadata = %+v", meta)
+	}
+	if meta["outline_budget_bytes"] != staged.OutlineBudgetBytes || meta["outline_bytes"] != staged.OutlineBytes || meta["outline_files"] != staged.OutlineFiles || meta["outline_omitted_files"] != staged.OutlineOmittedFiles {
+		t.Fatalf("outline metadata = %+v", meta)
 	}
 	unresolved := stagedDependency{BaselineError: "registry versions unavailable", OutlineError: "source tag unavailable"}
 	meta = generationMeta("target", hyrum.Dep{}, unresolved, &hyrum.RunResult{}, hyrum.GenerateResult{}, 0)

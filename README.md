@@ -172,6 +172,13 @@ matches the resolved release. An unresolved baseline or missing tag is
 recorded as `baseline_error` or `outline_error`; Hyrum does not label the
 repository's default branch as baseline source.
 
+Dependency outlines default to a 262144-byte limit, configurable with
+`outline_bytes` or `gen --outline-bytes N`. Hyrum selects complete files that
+declare used symbols, their package entry points, and referenced exported
+types. `outline-selection.json` records every included and omitted path. A run
+fails during staging when required source files cannot fit, before a model
+backend starts.
+
 `activations` lists exact quoted string literals that select a dependency
 without importing it directly. Driver names, plugin aliases, dynamic import
 names, and entry-point identifiers can be recorded this way. Each match appears
@@ -211,6 +218,7 @@ hyrum surface --scope test <path>     restrict the summary to test usage
 hyrum gen --dep X --run <path>        generate tests for X into tests/hyrum/
 hyrum gen --dep X --batch-size 40 ... cap each model batch at 40 symbols
 hyrum gen --dep X --batch-sites 500 ... cap each model batch at 500 sites
+hyrum gen --dep X --outline-bytes 131072 ... set the source outline limit
 hyrum gen --dep X --run --verify ...  also run tests at baseline and latest
 hyrum check --dep X@<ver> <path>      run existing tests/hyrum/X against X@ver
 hyrum corpus --upstream <purl> \
@@ -243,10 +251,11 @@ recovered steps for each batch. A staging run without `--run` writes each
 batch's `usage.json` under the workspace's `batches/` directory for inspection.
 
 `gen` stages a workspace with the target's static usage of the dependency
-(`usage.json`), a signature-only outline of the dependency's source at the
-resolved baseline tag when available (`dep-outline.md`), the target's git
-commits mentioning the dependency, its OSV advisories, and its parsed
-changelog. Without batching, three model steps
+(`usage.json`), a byte-bounded signature outline selected from the dependency's
+source at the resolved baseline tag when available (`dep-outline.md`), the
+outline decisions (`outline-selection.json`), the target's git commits
+mentioning the dependency, its OSV advisories, and its parsed changelog.
+Without batching, three model steps
 run in sequence: `hyrum-usage` follows the static entry points through
 instances and options bags to record the actual call surface;
 `hyrum-history` filters the history inputs down to a list of past compatibility

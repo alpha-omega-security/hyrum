@@ -27,7 +27,8 @@ Your working directory is the workspace root. Every path below is relative to it
 - `usage.json` — static entry points and call sites
 - `changelog.json` — dependency changelog entries between baseline and latest (may be absent)
 - `context.json`: `{purl, name, ecosystem, constraint, baseline, version,
-  latest, target, baseline_error?, outline_error?}`. `version` is a
+  latest, target, outline_budget_bytes, outline_bytes?, outline_files?,
+  outline_omitted_files?, baseline_error?, outline_error?}`. `version` is a
   compatibility alias for `baseline`.
 - `verdict.json` — write your output here per `schema.json`
 
