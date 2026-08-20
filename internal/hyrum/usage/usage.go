@@ -89,7 +89,7 @@ func Index(ctx context.Context, root, depPURL string) (*Surface, error) {
 	if err != nil {
 		return nil, fmt.Errorf("usage: resolve %s: %w", depPURL, err)
 	}
-	s, err := scan(root, sp, res.Surface.Provides)
+	s, err := scan(ctx, root, sp, res.Surface.Provides)
 	if err != nil {
 		return nil, err
 	}

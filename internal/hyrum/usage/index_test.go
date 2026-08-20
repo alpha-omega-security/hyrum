@@ -1,6 +1,40 @@
 package usage
 
-import "testing"
+import (
+	"context"
+	"errors"
+	"testing"
+)
+
+func TestWalkSourceFilesStopsAfterCancellation(t *testing.T) {
+	root := writeTree(t, map[string]string{
+		"a.py": "import flask\n",
+		"b.py": "import flask\n",
+	})
+	ctx, cancel := context.WithCancel(t.Context())
+	visited := 0
+	err := walkSourceFiles(ctx, root, set(".py"), func(string) error {
+		visited++
+		cancel()
+		return nil
+	})
+
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("walk error = %v, want context canceled", err)
+	}
+	if visited != 1 {
+		t.Fatalf("visited %d files after cancellation, want 1", visited)
+	}
+}
+
+func TestScanReturnsCanceledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, err := scan(ctx, t.TempDir(), specs["pypi"], nil)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("scan error = %v, want context canceled", err)
+	}
+}
 
 func TestGoIndex(t *testing.T) {
 	root := writeTree(t, map[string]string{
