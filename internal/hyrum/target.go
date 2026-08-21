@@ -4,12 +4,17 @@
 package hyrum
 
 import (
+	"crypto/sha256"
 	"fmt"
+	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 
 	"github.com/git-pkgs/brief"
 	"github.com/git-pkgs/brief/detect"
 	"github.com/git-pkgs/brief/kb"
+	"github.com/git-pkgs/manifests"
 	"github.com/git-pkgs/purl"
 )
 
@@ -17,6 +22,7 @@ import (
 // discovered about it that later pipeline stages need.
 type Target struct {
 	Path   string
+	Name   string
 	Report *brief.Report
 	Deps   []Dep
 }
@@ -64,7 +70,143 @@ func Analyze(path string) (*Target, error) {
 		})
 	}
 
-	return &Target{Path: abs, Report: rep, Deps: deps}, nil
+	return &Target{Path: abs, Name: detectTargetName(abs, rep), Report: rep, Deps: deps}, nil
+}
+
+// detectTargetName returns one stable directory component for a target. A
+// package name identifies subdirectory targets independently of their shared
+// repository remote. Targets without one use the repository name and their
+// path relative to the Git root.
+func detectTargetName(targetPath string, report *brief.Report) string {
+	if name := manifestPackageName(targetPath); name != "" {
+		return normalizeTargetName(name)
+	}
+
+	repositoryRoot := findRepositoryRoot(targetPath)
+	name := reportRemoteName(report)
+	if name == "" {
+		if repositoryRoot != "" {
+			name = filepath.Base(repositoryRoot)
+		} else {
+			name = filepath.Base(targetPath)
+		}
+	}
+	if repositoryRoot != "" {
+		if relative, err := filepath.Rel(repositoryRoot, targetPath); err == nil && relative != "." {
+			name += "/" + filepath.ToSlash(relative)
+		}
+	}
+	return normalizeTargetName(name)
+}
+
+// manifestPackageName returns a package name only when the target has one
+// unambiguous root manifest identity. Nested workspace members describe other
+// packages and do not name the selected target directory.
+func manifestPackageName(targetPath string) string {
+	entries, err := os.ReadDir(targetPath)
+	if err != nil {
+		return ""
+	}
+	names := make(map[string]struct{})
+	for _, entry := range entries {
+		if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
+			continue
+		}
+		_, kind, ok := manifests.Identify(entry.Name())
+		if !ok || kind != manifests.Manifest {
+			continue
+		}
+		content, err := os.ReadFile(filepath.Join(targetPath, entry.Name()))
+		if err != nil {
+			continue
+		}
+		parsed, err := manifests.Parse(entry.Name(), content, manifests.Options{FSRoot: targetPath})
+		if err != nil {
+			continue
+		}
+		if name := strings.TrimSpace(parsed.Name); name != "" {
+			names[name] = struct{}{}
+		}
+	}
+	if len(names) != 1 {
+		return ""
+	}
+	for name := range names {
+		return name
+	}
+	return ""
+}
+
+func reportRemoteName(report *brief.Report) string {
+	if report == nil || report.Git == nil {
+		return ""
+	}
+	if remote := report.Git.Remotes["origin"]; remote != "" {
+		return remoteBase(remote)
+	}
+	var remotes []string
+	for _, remote := range report.Git.Remotes {
+		if strings.HasPrefix(remote, "https://") {
+			remotes = append(remotes, remote)
+		}
+	}
+	sort.Strings(remotes)
+	if len(remotes) == 0 {
+		return ""
+	}
+	return remoteBase(remotes[0])
+}
+
+func remoteBase(remote string) string {
+	base := filepath.Base(remote)
+	return strings.TrimSuffix(base, ".git")
+}
+
+func findRepositoryRoot(targetPath string) string {
+	current := filepath.Clean(targetPath)
+	for {
+		if _, err := os.Stat(filepath.Join(current, ".git")); err == nil {
+			return current
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return ""
+		}
+		current = parent
+	}
+}
+
+// normalizeTargetName converts package names and Git-relative fallback paths
+// into one portable path component. A hash preserves identity when case or
+// punctuation is changed during normalization.
+func normalizeTargetName(value string) string {
+	original := strings.TrimSpace(value)
+	var normalized strings.Builder
+	separator := false
+	for _, char := range original {
+		switch {
+		case char >= 'A' && char <= 'Z':
+			normalized.WriteRune(char + ('a' - 'A'))
+			separator = false
+		case char >= 'a' && char <= 'z', char >= '0' && char <= '9', char == '-', char == '_', char == '.':
+			normalized.WriteRune(char)
+			separator = false
+		default:
+			if normalized.Len() > 0 && !separator {
+				normalized.WriteByte('-')
+				separator = true
+			}
+		}
+	}
+	name := strings.Trim(normalized.String(), "-._")
+	if name == "" {
+		name = "target"
+	}
+	if name == original {
+		return name
+	}
+	hash := fmt.Sprintf("%x", sha256.Sum256([]byte(original)))
+	return name + "-" + hash[:10]
 }
 
 func ecosystemOf(p string) string {

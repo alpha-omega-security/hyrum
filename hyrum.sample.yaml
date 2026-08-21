@@ -21,6 +21,12 @@
 # --config files may also use absolute paths and paths beginning with ~/.
 # out: tests/hyrum
 
+# Name used below the work root and in tests/hyrum/<dependency>/from_<name>.
+# Hyrum normally reads one package name from the target's root manifest, then
+# falls back to the repository name plus the Git-relative target path. An
+# explicit value must contain one path component. `gen --target-name` wins.
+# target_name: apache-airflow-core
+
 # Working directory for dependency clones and skill workspaces. This setting is
 # ignored when the config is auto-discovered; pass --config explicitly to trust
 # it. Relative paths use the directory containing that explicit config file.

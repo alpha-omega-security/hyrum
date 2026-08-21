@@ -66,6 +66,11 @@ plus `batch_count`, `history_cost_usd`, and a `batches` array. Each batch entry
 records its symbol names, site count, backend session, cost, notes, and any
 recovered model steps.
 
+The target path component uses one package name declared by a root manifest.
+If the target has no single package name, it uses the repository name and the
+target's path relative to the Git root. `gen --target-name` and `target_name`
+in `hyrum.yaml` override the detected value.
+
 ## hyrum-usage
 
 Reads `usage.json`, `target/`, `dep-outline.md`, `outline-selection.json`, and

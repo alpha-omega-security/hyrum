@@ -57,6 +57,14 @@ writes the same layout under its required `--out` directory, so the same suite
 can serve both the consumer and the dependency's maintainer. Worked examples
 with real command output are in [docs/](docs/).
 
+`<target>` uses the package name declared by one root manifest when that name
+is unambiguous. Otherwise, Hyrum combines the repository name with the
+target's path relative to the Git root. This keeps subdirectory targets in one
+repository from sharing workspaces or generated suites. `gen --target-name`
+and the `target_name` config setting provide an explicit one-component name.
+Automatic names that contain path separators, uppercase letters, or other
+unsupported characters receive a normalized suffix hash to prevent collisions.
+
 **Consumer CI** ([docs/consumer-ci.md](docs/consumer-ci.md)). Run
 `tests/hyrum/<dep>/` on the [dependabot](https://docs.github.com/en/code-security/dependabot)
 or [renovate](https://docs.renovatebot.com) PR that bumps `<dep>`; a
@@ -145,12 +153,12 @@ unreadable, malformed, or invalid explicit file is an error, while an absent
 automatic file is not. Configuration is strict: unknown keys and incorrect
 value types are rejected.
 
-The supported settings are `backend`, `out`, `work`, per-skill `models`, and
-per-dependency `baseline`, `skip`, and `activations` values under `deps`.
-Explicit command-line flags take precedence over config, and config takes
-precedence over built-in defaults. Relative `out` paths are rooted at the
-target repository. For safety, `out` in an automatically discovered target
-configuration must remain inside that target; an explicitly supplied
+The supported settings are `backend`, `out`, `work`, `target_name`, per-skill
+`models`, and per-dependency `baseline`, `skip`, and `activations` values under
+`deps`. Explicit command-line flags take precedence over config, and config
+takes precedence over built-in defaults. Relative `out` paths are rooted at
+the target repository. For safety, `out` in an automatically discovered
+target configuration must remain inside that target; an explicitly supplied
 `--config` may select an external output path.
 
 An automatically discovered config cannot select `work`: that value is ignored
@@ -216,6 +224,7 @@ hyrum surface --dep X <path>          symbol-level detail for one dep
 hyrum surface --dep X --symbol X.y ... inspect selected exact symbols
 hyrum surface --scope test <path>     restrict the summary to test usage
 hyrum gen --dep X --run <path>        generate tests for X into tests/hyrum/
+hyrum gen --dep X --target-name app ... override the generated target identity
 hyrum gen --dep X --batch-size 40 ... cap each model batch at 40 symbols
 hyrum gen --dep X --batch-sites 500 ... cap each model batch at 500 sites
 hyrum gen --dep X --outline-bytes 131072 ... set the source outline limit
