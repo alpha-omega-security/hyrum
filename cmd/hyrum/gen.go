@@ -58,17 +58,19 @@ const (
 )
 
 type genOptions struct {
-	backend string
-	out     string
-	work    string
-	models  map[string]string
+	backend      string
+	out          string
+	work         string
+	outlineBytes int
+	models       map[string]string
 }
 
 func defaultGenOptions() genOptions {
 	return genOptions{
-		backend: defaultGenBackend,
-		out:     defaultGenOut,
-		work:    filepath.Join(os.TempDir(), "hyrum"),
+		backend:      defaultGenBackend,
+		out:          defaultGenOut,
+		work:         filepath.Join(os.TempDir(), "hyrum"),
+		outlineBytes: defaultOutlineBytes,
 	}
 }
 
@@ -92,6 +94,7 @@ func cmdGen(ctx context.Context, args []string) error {
 	run := fs.Bool("run", false, "actually invoke the backend (otherwise stage only)")
 	batchSize := fs.Int("batch-size", 0, "maximum symbol entries per model batch; zero disables this limit")
 	batchSites := fs.Int("batch-sites", 0, "maximum static sites per model batch; zero disables this limit")
+	outlineBytes := fs.Int("outline-bytes", defaults.outlineBytes, "maximum bytes in each dependency outline")
 	container := fs.String("container", "", "run the backend in a container using this image (\"default\" for "+hyrum.DefaultRunnerImage+")")
 	verify := fs.Bool("verify", false, "after generating, run the tests against the baseline and latest dep versions and record results in meta.json")
 	if err := fs.Parse(args); err != nil {
@@ -108,6 +111,9 @@ func cmdGen(ctx context.Context, args []string) error {
 	}
 	if *batchSites < 0 {
 		return fmt.Errorf("--batch-sites must be zero or greater")
+	}
+	if *outlineBytes <= 0 {
+		return fmt.Errorf("--outline-bytes must be greater than zero")
 	}
 	usageOptions, err := resolveUsageOptions(scopes, includes, excludes, []usage.Scope{usage.ScopeProduction})
 	if err != nil {
@@ -132,9 +138,10 @@ func cmdGen(ctx context.Context, args []string) error {
 		return err
 	}
 	resolved, err := resolveGenOptions(t.Path, cfgSource, set["config"], cfg, genOptions{
-		backend: *backend,
-		out:     *out,
-		work:    *work,
+		backend:      *backend,
+		out:          *out,
+		work:         *work,
+		outlineBytes: *outlineBytes,
 	}, set)
 	if err != nil {
 		return err
@@ -162,6 +169,7 @@ func cmdGen(ctx context.Context, args []string) error {
 	p.symbols = append([]string(nil), symbols...)
 	p.batchSize = *batchSize
 	p.batchSites = *batchSites
+	p.outlineBytes = resolved.outlineBytes
 	return p.genAll(ctx, t, selected)
 }
 
@@ -190,6 +198,9 @@ func resolveGenOptions(targetRoot, configPath string, explicitConfig bool, cfg h
 		}
 		resolved.work = work
 	}
+	if cfg.OutlineBytes != nil {
+		resolved.outlineBytes = *cfg.OutlineBytes
+	}
 	resolved.models = cfg.Models
 
 	if set["backend"] {
@@ -208,6 +219,9 @@ func resolveGenOptions(targetRoot, configPath string, explicitConfig bool, cfg h
 			return genOptions{}, fmt.Errorf("work: %w", err)
 		}
 		resolved.work = expanded
+	}
+	if set["outline-bytes"] {
+		resolved.outlineBytes = cli.outlineBytes
 	}
 	trustedExternalOut := set["out"] || (explicitConfig && cfg.Out != nil)
 	if !trustedExternalOut && !pathWithinResolved(targetRoot, resolved.out) {
@@ -315,6 +329,8 @@ type pipeline struct {
 	// batchSites limits static sites per batch and can split one symbol's sites
 	// across batches. Zero disables the site limit.
 	batchSites int
+	// outlineBytes caps the rendered dependency outline passed to model steps.
+	outlineBytes int
 	// models maps skill names to backend-owned model IDs resolved from the
 	// portable mid/high/max tiers in hyrum.yaml.
 	models map[string]string
@@ -336,12 +352,16 @@ type generationExecution struct {
 }
 
 type stagedDependency struct {
-	DepDir        string
-	Latest        string
-	Baseline      string
-	BaselineError string
-	OutlineRef    string
-	OutlineError  string
+	DepDir              string
+	Latest              string
+	Baseline            string
+	BaselineError       string
+	OutlineRef          string
+	OutlineError        string
+	OutlineBudgetBytes  int
+	OutlineBytes        int
+	OutlineFiles        int
+	OutlineOmittedFiles int
 }
 
 type registryDependency struct {
@@ -360,6 +380,7 @@ func newPipeline(h harness.Harness, work, outRoot string, run bool, containerIma
 		outRoot:        outRoot,
 		run:            run,
 		usageOptions:   usage.IndexOptions{Scopes: []usage.Scope{usage.ScopeProduction}},
+		outlineBytes:   defaultOutlineBytes,
 		containerImage: containerImage,
 	}
 	if containerImage == "" {
@@ -409,7 +430,7 @@ func (p *pipeline) genOne(ctx context.Context, t *hyrum.Target, idx *hyrum.Histo
 	if err := prepareWorkspace(ws); err != nil {
 		return fmt.Errorf("prepare workspace: %w", err)
 	}
-	staged, err := stageContext(ctx, t, targetDir, d, ws, p.rc, p.usageOptions, p.symbols)
+	staged, err := stageContext(ctx, t, targetDir, d, ws, p.rc, p.usageOptions, p.symbols, p.outlineBytes)
 	if err != nil {
 		return fmt.Errorf("stage: %w", err)
 	}
@@ -524,6 +545,7 @@ func (p *pipeline) batchingEnabled() bool {
 
 var transientWorkspaceFiles = []string{
 	"dep-outline.md",
+	outlineSelectionFile,
 	"git-log.txt",
 	"changelog.json",
 	"vulns.json",
@@ -625,6 +647,12 @@ func generationMeta(targetDir string, d hyrum.Dep, staged stagedDependency, res 
 	}
 	if staged.OutlineRef != "" {
 		meta["outline_ref"] = staged.OutlineRef
+	}
+	if staged.OutlineBudgetBytes > 0 {
+		meta["outline_budget_bytes"] = staged.OutlineBudgetBytes
+		meta["outline_bytes"] = staged.OutlineBytes
+		meta["outline_files"] = staged.OutlineFiles
+		meta["outline_omitted_files"] = staged.OutlineOmittedFiles
 	}
 	return meta
 }
@@ -790,7 +818,9 @@ func stageContext(
 	rc *registries.Client,
 	usageOptions usage.IndexOptions,
 	symbols []string,
+	outlineBytes int,
 ) (staged stagedDependency, err error) {
+	staged.OutlineBudgetBytes = outlineBytes
 	if err := os.MkdirAll(ws, 0o755); err != nil {
 		return staged, err
 	}
@@ -825,15 +855,16 @@ func stageContext(
 		staged.BaselineError = fmt.Sprintf("registry metadata: %v", rerr)
 	}
 	meta := map[string]any{
-		"purl":       d.PURL,
-		"name":       d.Name,
-		"ecosystem":  d.Ecosystem,
-		"constraint": d.Version,
-		"version":    staged.Baseline,
-		"baseline":   staged.Baseline,
-		"repo":       registryInfo.Repository,
-		"latest":     staged.Latest,
-		"target":     target,
+		"purl":                 d.PURL,
+		"name":                 d.Name,
+		"ecosystem":            d.Ecosystem,
+		"constraint":           d.Version,
+		"version":              staged.Baseline,
+		"baseline":             staged.Baseline,
+		"repo":                 registryInfo.Repository,
+		"latest":               staged.Latest,
+		"target":               target,
+		"outline_budget_bytes": outlineBytes,
 	}
 	if rerr != nil {
 		meta["registry_error"] = rerr.Error()
@@ -906,16 +937,27 @@ func stageContext(
 	if err != nil {
 		return staged, fmt.Errorf("outline: %w", err)
 	}
+	selection, err := selectDependencyOutline(res, surf, outlineBytes)
+	if err != nil {
+		return staged, fmt.Errorf("select dependency outline: %w", err)
+	}
+	staged.OutlineBytes = selection.RenderedBytes
+	staged.OutlineFiles = len(selection.Included)
+	staged.OutlineOmittedFiles = len(selection.Omitted)
 	meta["exported_symbols"] = countExported(res)
+	meta["outline_bytes"] = staged.OutlineBytes
+	meta["outline_files"] = staged.OutlineFiles
+	meta["outline_omitted_files"] = staged.OutlineOmittedFiles
 	if err := writeJSON(filepath.Join(ws, "context.json"), meta); err != nil {
 		return staged, err
 	}
-	f, err := os.Create(filepath.Join(ws, "dep-outline.md"))
-	if err != nil {
+	if err := writeJSON(filepath.Join(ws, outlineSelectionFile), selection); err != nil {
 		return staged, err
 	}
-	defer f.Close()
-	return staged, res.Markdown(f)
+	if err := os.WriteFile(filepath.Join(ws, "dep-outline.md"), selection.contents, 0o644); err != nil {
+		return staged, err
+	}
+	return staged, nil
 }
 
 // checkoutVersion moves dir's working tree to the git tag matching version and

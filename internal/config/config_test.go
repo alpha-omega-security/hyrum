@@ -14,6 +14,7 @@ func TestLoadExplicitConfig(t *testing.T) {
 backend: codex
 out: generated/hyrum
 work: workspaces
+outline_bytes: 131072
 models:
   hyrum-generate: high
 deps:
@@ -36,6 +37,9 @@ deps:
 	}
 	if got := cfg.Models["hyrum-generate"]; got != "high" {
 		t.Fatalf("generate model = %q", got)
+	}
+	if cfg.OutlineBytes == nil || *cfg.OutlineBytes != 131072 {
+		t.Fatalf("outline_bytes = %v", cfg.OutlineBytes)
 	}
 	dep := cfg.Deps["ws"]
 	if dep.Baseline == nil || *dep.Baseline != "8.17.1" {
@@ -103,6 +107,9 @@ func TestParseRejectsMalformedUnknownAndIncorrectTypes(t *testing.T) {
 		"activation type":  "deps:\n  ws:\n    activations: [true]\n",
 		"empty activation": "deps:\n  ws:\n    activations: ['']\n",
 		"null":             "work: null\n",
+		"outline type":     "outline_bytes: large\n",
+		"outline zero":     "outline_bytes: 0\n",
+		"outline negative": "outline_bytes: -1\n",
 		"second document":  "backend: codex\n---\nbackend: claude\n",
 	}
 	for name, body := range tests {
