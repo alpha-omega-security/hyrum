@@ -21,7 +21,7 @@ Before any model step runs, `stageContext` and `GatherHistory` write:
 | `usage.json` | scoped imports, refs, and configured activation strings over `target/` | usage, generate |
 | `dep-outline.md` | `outline.Pack` of `dep/`, signature-only | usage, generate |
 | `context.json` | purl, name, ecosystem, baseline version, repo URL, latest version, exported-symbol count | all |
-| `git-log.txt` | target's `git log --all` filtered to commits mentioning the dep | history |
+| `git-log.txt` | target commits selected by dependency mentions in messages or changed manifest lines | history |
 | `changelog.json` | `changelog.Between(baseline, latest)` from `dep/` (absent if none found) | history, validate |
 | `vulns.json` | osv.dev advisories for the dep's purl | history |
 
