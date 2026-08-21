@@ -1,6 +1,7 @@
 package usage
 
 import (
+	"context"
 	"io/fs"
 	"os"
 	gopath "path"
@@ -86,12 +87,35 @@ var skipDirs = map[string]bool{
 // module matches one of the dep's provided names, records their bound
 // identifiers as receivers, then calls outline.Refs to collect direct member
 // accesses on those receivers.
-func scan(root string, sp spec, provided []provides.ProvidedName) (*Surface, error) {
+func scan(ctx context.Context, root string, sp spec, provided []provides.ProvidedName) (*Surface, error) {
 	exts := set(sp.exts...)
 	c := newCollector()
 
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
+	err := walkSourceFiles(ctx, root, exts, func(path string) error {
+		src, rerr := os.ReadFile(path)
+		if rerr != nil {
+			return nil
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(root, path)
+		return scanFile(ctx, c, sp, src, rel, provided)
+	})
+	return c.surface(), err
+}
+
+func walkSourceFiles(
+	ctx context.Context,
+	root string,
+	exts map[string]bool,
+	visit func(string) error,
+) error {
+	return filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if walkErr != nil || d.IsDir() {
 			if d != nil && d.IsDir() && skipDir(d.Name()) {
 				return fs.SkipDir
 			}
@@ -100,24 +124,33 @@ func scan(root string, sp spec, provided []provides.ProvidedName) (*Surface, err
 		if !exts[filepath.Ext(path)] {
 			return nil
 		}
-		src, rerr := os.ReadFile(path)
-		if rerr != nil {
-			return nil
+		if err := visit(path); err != nil {
+			return err
 		}
-		rel, _ := filepath.Rel(root, path)
-		scanFile(c, sp, src, rel, provided)
-		return nil
+		return ctx.Err()
 	})
-	return c.surface(), err
 }
 
 // scanFile records symbols from one file into c. It first extracts import
 // statements and keeps those whose module string matches a provided name,
 // then traces member accesses on the local identifiers those imports bind.
-func scanFile(c *collector, sp spec, src []byte, rel string, provided []provides.ProvidedName) {
+func scanFile(
+	ctx context.Context,
+	c *collector,
+	sp spec,
+	src []byte,
+	rel string,
+	provided []provides.ProvidedName,
+) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	imports, ok := outline.Imports(src, rel)
 	if !ok {
-		return
+		return ctx.Err()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	lines := strings.Split(string(src), "\n")
 
@@ -134,20 +167,33 @@ func scanFile(c *collector, sp spec, src []byte, rel string, provided []provides
 	}
 
 	for _, imp := range imports {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if !matchesAny(provided, imp.Module) {
 			continue
 		}
 		recordImport(c, sp, imp, rel, lineAt(lines, imp.Line), receivers)
 	}
 	if len(receivers) == 0 {
-		return
+		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 
 	refs, _ := outline.Refs(src, rel, keys(receivers))
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	for _, ref := range refs {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		base := receivers[ref.Receiver]
 		c.add(base+"."+ref.Member, kindMember, rel, ref.Line, lineAt(lines, ref.Line))
 	}
+	return nil
 }
 
 // recordImport records the symbols one matching import statement introduces

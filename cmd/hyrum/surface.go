@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -63,6 +64,8 @@ func surfaceSummary(ctx context.Context, t *hyrum.Target, directOnly, asJSON boo
 				r.Sites += len(sym.Sites)
 			}
 			r.Indexer = "ok"
+		} else if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return err
 		} else {
 			r.Indexer = "unsupported"
 		}
