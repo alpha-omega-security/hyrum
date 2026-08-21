@@ -133,3 +133,50 @@ func TestPyCuratedChainedBeforeHeuristic(t *testing.T) {
 		t.Errorf("curated PyYAML→yaml mapping not applied: %v", got)
 	}
 }
+
+func TestIndexManySeparatesPythonDependencies(t *testing.T) {
+	root := writeTree(t, map[string]string{
+		"app.py": "import flask\n" +
+			"import yaml\n" +
+			"flask.jsonify({'ok': True})\n" +
+			"yaml.safe_load('ok: true')\n",
+	})
+	purls := []string{"pkg:pypi/flask", "pkg:pypi/PyYAML@6.0"}
+	results, err := IndexMany(t.Context(), root, purls)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	flask := results[purls[0]]
+	if flask.Err != nil || flask.Surface == nil {
+		t.Fatalf("flask result = %+v", flask)
+	}
+	flaskSymbols := symbolNames(flask.Surface)
+	if flaskSymbols["flask.jsonify"] != 1 || flaskSymbols["yaml.safe_load"] != 0 {
+		t.Errorf("flask symbols = %v", flaskSymbols)
+	}
+
+	yaml := results[purls[1]]
+	if yaml.Err != nil || yaml.Surface == nil {
+		t.Fatalf("PyYAML result = %+v", yaml)
+	}
+	yamlSymbols := symbolNames(yaml.Surface)
+	if yamlSymbols["yaml.safe_load"] != 1 || yamlSymbols["flask.jsonify"] != 0 {
+		t.Errorf("PyYAML symbols = %v", yamlSymbols)
+	}
+}
+
+func TestIndexManyKeepsPerDependencyErrors(t *testing.T) {
+	root := writeTree(t, map[string]string{"app.py": "import flask\n"})
+	purls := []string{"pkg:pypi/flask", "pkg:cobol/example"}
+	results, err := IndexMany(t.Context(), root, purls)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if results[purls[0]].Err != nil || results[purls[0]].Surface == nil {
+		t.Fatalf("flask result = %+v", results[purls[0]])
+	}
+	if results[purls[1]].Err == nil || results[purls[1]].Surface != nil {
+		t.Fatalf("unsupported result = %+v", results[purls[1]])
+	}
+}
