@@ -90,6 +90,32 @@ func TestTargetNamePrefersOrigin(t *testing.T) {
 	}
 }
 
+func TestTargetNamePrefersAnalyzedPackageIdentity(t *testing.T) {
+	tgt := &hyrum.Target{
+		Path: "/tmp/airflow-core",
+		Name: "apache-airflow-core",
+		Report: &brief.Report{Git: &brief.GitInfo{Remotes: map[string]string{
+			"origin": "https://github.com/apache/airflow.git",
+		}}},
+	}
+	if got := targetName(tgt); got != "apache-airflow-core" {
+		t.Fatalf("got %q, want apache-airflow-core", got)
+	}
+}
+
+func TestValidateTargetName(t *testing.T) {
+	for _, value := range []string{"airflow", "apache-airflow-core", "project.name_v2"} {
+		if err := validateTargetName(value); err != nil {
+			t.Errorf("validateTargetName(%q): %v", value, err)
+		}
+	}
+	for _, value := range []string{"", ".", "..", "../escape", "scope/package", `scope\package`} {
+		if err := validateTargetName(value); err == nil {
+			t.Errorf("validateTargetName(%q) succeeded", value)
+		}
+	}
+}
+
 func TestSlugify(t *testing.T) {
 	cases := map[string]string{
 		"https://github.com/a/b":  "github_com_a_b",

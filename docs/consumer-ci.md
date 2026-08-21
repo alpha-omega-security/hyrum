@@ -17,8 +17,12 @@ git commit -m "Add Hyrum's tests for ws"
 ```
 
 The generated files are plain `node:test` (or pytest, or `go test`) files
-under `tests/hyrum/<dep>/from_<repo>/` with a `meta.json` recording the
-baseline version and generation inputs.
+under `tests/hyrum/<dep>/from_<target>/` with a `meta.json` recording the
+baseline version and generation inputs. The target component uses the package
+name from one root manifest when available. Nested targets add a stable suffix
+from their Git-relative path, so repeated package names keep separate suites.
+`gen --target-name <name>` can
+set it explicitly.
 
 If a backend exits non-zero after writing a fresh, usable output artifact,
 Hyrum preserves that output and records `recovered_output: true` plus the

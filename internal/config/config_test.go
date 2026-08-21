@@ -14,6 +14,7 @@ func TestLoadExplicitConfig(t *testing.T) {
 backend: codex
 out: generated/hyrum
 work: workspaces
+target_name: airflow-core
 outline_bytes: 131072
 models:
   hyrum-generate: high
@@ -40,6 +41,9 @@ deps:
 	}
 	if cfg.OutlineBytes == nil || *cfg.OutlineBytes != 131072 {
 		t.Fatalf("outline_bytes = %v", cfg.OutlineBytes)
+	}
+	if cfg.TargetName == nil || *cfg.TargetName != "airflow-core" {
+		t.Fatalf("target_name = %v", cfg.TargetName)
 	}
 	dep := cfg.Deps["ws"]
 	if dep.Baseline == nil || *dep.Baseline != "8.17.1" {
@@ -98,19 +102,21 @@ func TestLoadUnreadableExplicitConfigFails(t *testing.T) {
 
 func TestParseRejectsMalformedUnknownAndIncorrectTypes(t *testing.T) {
 	tests := map[string]string{
-		"malformed":        "backend: [\n",
-		"unknown top key":  "backed: codex\n",
-		"unknown dep key":  "deps:\n  ws:\n    basline: 1.0\n",
-		"backend type":     "backend: true\n",
-		"skip type":        "deps:\n  ws:\n    skip: yes-please\n",
-		"activations type": "deps:\n  ws:\n    activations: ws-driver\n",
-		"activation type":  "deps:\n  ws:\n    activations: [true]\n",
-		"empty activation": "deps:\n  ws:\n    activations: ['']\n",
-		"null":             "work: null\n",
-		"outline type":     "outline_bytes: large\n",
-		"outline zero":     "outline_bytes: 0\n",
-		"outline negative": "outline_bytes: -1\n",
-		"second document":  "backend: codex\n---\nbackend: claude\n",
+		"malformed":         "backend: [\n",
+		"unknown top key":   "backed: codex\n",
+		"unknown dep key":   "deps:\n  ws:\n    basline: 1.0\n",
+		"backend type":      "backend: true\n",
+		"skip type":         "deps:\n  ws:\n    skip: yes-please\n",
+		"activations type":  "deps:\n  ws:\n    activations: ws-driver\n",
+		"activation type":   "deps:\n  ws:\n    activations: [true]\n",
+		"empty activation":  "deps:\n  ws:\n    activations: ['']\n",
+		"null":              "work: null\n",
+		"empty target name": "target_name: ''\n",
+		"target name type":  "target_name: true\n",
+		"outline type":      "outline_bytes: large\n",
+		"outline zero":      "outline_bytes: 0\n",
+		"outline negative":  "outline_bytes: -1\n",
+		"second document":   "backend: codex\n---\nbackend: claude\n",
 	}
 	for name, body := range tests {
 		t.Run(name, func(t *testing.T) {
