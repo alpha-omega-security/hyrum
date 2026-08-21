@@ -18,11 +18,18 @@ import (
 // the full symbol/site list for that dependency.
 func cmdSurface(ctx context.Context, args []string) error {
 	fs := newFlags("surface")
-	var deps stringList
+	var deps, scopes, includes, excludes stringList
 	fs.Var(&deps, "dep", "dependency name to detail (repeatable); default: summarise all direct deps")
+	fs.Var(&scopes, "scope", "usage scope to include: production, test, example, or documentation (repeatable); default: all")
+	fs.Var(&includes, "include", "relative path prefix to include (repeatable)")
+	fs.Var(&excludes, "exclude", "relative path prefix to exclude (repeatable)")
 	asJSON := fs.Bool("json", false, "emit JSON instead of a table")
 	directOnly := fs.Bool("direct", true, "restrict summary to direct dependencies")
 	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	opts, err := resolveUsageOptions(scopes, includes, excludes, nil)
+	if err != nil {
 		return err
 	}
 	path := "."
@@ -36,20 +43,28 @@ func cmdSurface(ctx context.Context, args []string) error {
 	}
 
 	if len(deps) == 0 {
-		return surfaceSummary(ctx, t, *directOnly, *asJSON)
+		return surfaceSummaryWithOptions(ctx, t, *directOnly, *asJSON, opts)
 	}
-	return surfaceDetail(ctx, t, deps, *asJSON)
+	return surfaceDetailWithOptions(ctx, t, deps, *asJSON, opts)
 }
 
-func surfaceSummary(ctx context.Context, t *hyrum.Target, directOnly, asJSON bool) error {
+func surfaceSummaryWithOptions(
+	ctx context.Context,
+	t *hyrum.Target,
+	directOnly, asJSON bool,
+	opts usage.IndexOptions,
+) error {
 	type row struct {
-		Name      string `json:"name"`
-		Ecosystem string `json:"ecosystem"`
-		Version   string `json:"version"`
-		Scope     string `json:"scope"`
-		Symbols   int    `json:"symbols"`
-		Sites     int    `json:"sites"`
-		Indexer   string `json:"indexer"`
+		Name            string `json:"name"`
+		Ecosystem       string `json:"ecosystem"`
+		Version         string `json:"version"`
+		Scope           string `json:"scope"`
+		Symbols         int    `json:"symbols"`
+		Sites           int    `json:"sites"`
+		ProductionSites int    `json:"production_sites"`
+		TestSites       int    `json:"test_sites"`
+		OtherSites      int    `json:"other_sites"`
+		Indexer         string `json:"indexer"`
 	}
 	var deps []hyrum.Dep
 	var depPURLs []string
@@ -60,7 +75,13 @@ func surfaceSummary(ctx context.Context, t *hyrum.Target, directOnly, asJSON boo
 		deps = append(deps, d)
 		depPURLs = append(depPURLs, d.PURL)
 	}
-	indexed, err := usage.IndexMany(ctx, t.Path, depPURLs)
+	var indexed map[string]usage.IndexResult
+	var err error
+	if emptyUsageOptions(opts) {
+		indexed, err = usage.IndexMany(ctx, t.Path, depPURLs)
+	} else {
+		indexed, err = usage.IndexManyWithOptions(ctx, t.Path, depPURLs, opts)
+	}
 	if err != nil {
 		return err
 	}
@@ -73,7 +94,17 @@ func surfaceSummary(ctx context.Context, t *hyrum.Target, directOnly, asJSON boo
 			s := result.Surface
 			r.Symbols = s.UsedCount()
 			for _, sym := range s.Symbols {
-				r.Sites += len(sym.Sites)
+				for _, site := range sym.Sites {
+					r.Sites++
+					switch site.Scope {
+					case usage.ScopeProduction:
+						r.ProductionSites++
+					case usage.ScopeTest:
+						r.TestSites++
+					default:
+						r.OtherSites++
+					}
+				}
 			}
 			r.Indexer = "ok"
 		} else {
@@ -88,22 +119,35 @@ func surfaceSummary(ctx context.Context, t *hyrum.Target, directOnly, asJSON boo
 	}
 	const columnGap = 2
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, columnGap, ' ', 0)
-	fmt.Fprintln(tw, "DEP\tECOSYSTEM\tVERSION\tSCOPE\tSYMBOLS\tSITES\tINDEX")
+	fmt.Fprintln(tw, "DEP\tECOSYSTEM\tVERSION\tSCOPE\tSYMBOLS\tSITES\tPROD\tTEST\tOTHER\tINDEX")
 	for _, r := range rows {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d\t%d\t%s\n",
-			r.Name, r.Ecosystem, r.Version, r.Scope, r.Symbols, r.Sites, r.Indexer)
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d\t%d\t%d\t%d\t%d\t%s\n",
+			r.Name, r.Ecosystem, r.Version, r.Scope, r.Symbols, r.Sites,
+			r.ProductionSites, r.TestSites, r.OtherSites, r.Indexer)
 	}
 	return tw.Flush()
 }
 
-func surfaceDetail(ctx context.Context, t *hyrum.Target, names []string, asJSON bool) error {
+func surfaceDetailWithOptions(
+	ctx context.Context,
+	t *hyrum.Target,
+	names []string,
+	asJSON bool,
+	opts usage.IndexOptions,
+) error {
 	var out []*usage.Surface
 	for _, name := range names {
 		d, ok := findDep(t, name)
 		if !ok {
 			return fmt.Errorf("dependency %q not found in %s (ecosystems: %v)", name, t.Path, t.Ecosystems())
 		}
-		s, err := usage.Index(ctx, t.Path, d.PURL)
+		var s *usage.Surface
+		var err error
+		if emptyUsageOptions(opts) {
+			s, err = usage.Index(ctx, t.Path, d.PURL)
+		} else {
+			s, err = usage.IndexWithOptions(ctx, t.Path, d.PURL, opts)
+		}
 		if err != nil {
 			return err
 		}
@@ -120,11 +164,15 @@ func surfaceDetail(ctx context.Context, t *hyrum.Target, names []string, asJSON 
 		for _, sym := range s.Symbols {
 			fmt.Printf("  %s  [%s]  %d site(s)\n", sym.Name, sym.Kind, len(sym.Sites))
 			for _, site := range sym.Sites {
-				fmt.Printf("    %s:%d  %s\n", site.File, site.Line, truncate(site.Context, contextWidth))
+				fmt.Printf("    %s:%d  [%s]  %s\n", site.File, site.Line, site.Scope, truncate(site.Context, contextWidth))
 			}
 		}
 	}
 	return nil
+}
+
+func emptyUsageOptions(opts usage.IndexOptions) bool {
+	return len(opts.Scopes) == 0 && len(opts.IncludePaths) == 0 && len(opts.ExcludePaths) == 0
 }
 
 func findDep(t *hyrum.Target, name string) (hyrum.Dep, bool) {
