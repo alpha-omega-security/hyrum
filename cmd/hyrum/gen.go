@@ -61,6 +61,7 @@ type genOptions struct {
 	backend      string
 	out          string
 	work         string
+	targetName   string
 	outlineBytes int
 	models       map[string]string
 }
@@ -95,6 +96,7 @@ func cmdGen(ctx context.Context, args []string) error {
 	batchSize := fs.Int("batch-size", 0, "maximum symbol entries per model batch; zero disables this limit")
 	batchSites := fs.Int("batch-sites", 0, "maximum static sites per model batch; zero disables this limit")
 	outlineBytes := fs.Int("outline-bytes", defaults.outlineBytes, "maximum bytes in each dependency outline")
+	targetNameOverride := fs.String("target-name", "", "stable name used in work and output paths (default: package or repository identity)")
 	container := fs.String("container", "", "run the backend in a container using this image (\"default\" for "+hyrum.DefaultRunnerImage+")")
 	verify := fs.Bool("verify", false, "after generating, run the tests against the baseline and latest dep versions and record results in meta.json")
 	if err := fs.Parse(args); err != nil {
@@ -115,6 +117,12 @@ func cmdGen(ctx context.Context, args []string) error {
 	if *outlineBytes <= 0 {
 		return fmt.Errorf("--outline-bytes must be greater than zero")
 	}
+	set := visitedFlags(fs)
+	if set["target-name"] {
+		if err := validateTargetName(*targetNameOverride); err != nil {
+			return err
+		}
+	}
 	usageOptions, err := resolveUsageOptions(scopes, includes, excludes, []usage.Scope{usage.ScopeProduction})
 	if err != nil {
 		return err
@@ -129,7 +137,6 @@ func cmdGen(ctx context.Context, args []string) error {
 		return err
 	}
 
-	set := visitedFlags(fs)
 	if set["config"] && *configPath == "" {
 		return fmt.Errorf("--config requires a non-empty path")
 	}
@@ -141,6 +148,7 @@ func cmdGen(ctx context.Context, args []string) error {
 		backend:      *backend,
 		out:          *out,
 		work:         *work,
+		targetName:   *targetNameOverride,
 		outlineBytes: *outlineBytes,
 	}, set)
 	if err != nil {
@@ -170,6 +178,7 @@ func cmdGen(ctx context.Context, args []string) error {
 	p.batchSize = *batchSize
 	p.batchSites = *batchSites
 	p.outlineBytes = resolved.outlineBytes
+	p.targetName = resolved.targetName
 	return p.genAll(ctx, t, selected)
 }
 
@@ -201,6 +210,9 @@ func resolveGenOptions(targetRoot, configPath string, explicitConfig bool, cfg h
 	if cfg.OutlineBytes != nil {
 		resolved.outlineBytes = *cfg.OutlineBytes
 	}
+	if cfg.TargetName != nil {
+		resolved.targetName = *cfg.TargetName
+	}
 	resolved.models = cfg.Models
 
 	if set["backend"] {
@@ -222,6 +234,14 @@ func resolveGenOptions(targetRoot, configPath string, explicitConfig bool, cfg h
 	}
 	if set["outline-bytes"] {
 		resolved.outlineBytes = cli.outlineBytes
+	}
+	if set["target-name"] {
+		resolved.targetName = cli.targetName
+	}
+	if resolved.targetName != "" {
+		if err := validateTargetName(resolved.targetName); err != nil {
+			return genOptions{}, err
+		}
 	}
 	trustedExternalOut := set["out"] || (explicitConfig && cfg.Out != nil)
 	if !trustedExternalOut && !pathWithinResolved(targetRoot, resolved.out) {
@@ -331,6 +351,9 @@ type pipeline struct {
 	batchSites int
 	// outlineBytes caps the rendered dependency outline passed to model steps.
 	outlineBytes int
+	// targetName overrides the identity detected from the target manifest or
+	// repository path.
+	targetName string
 	// models maps skill names to backend-owned model IDs resolved from the
 	// portable mid/high/max tiers in hyrum.yaml.
 	models map[string]string
@@ -409,7 +432,10 @@ func (p *pipeline) genAll(ctx context.Context, t *hyrum.Target, deps []hyrum.Dep
 
 func (p *pipeline) genOne(ctx context.Context, t *hyrum.Target, idx *hyrum.HistoryIndex, d hyrum.Dep) error {
 	targetDir := targetName(t)
-	if err := validateRelativePath("target name", targetDir); err != nil {
+	if p.targetName != "" {
+		targetDir = p.targetName
+	}
+	if err := validateTargetName(targetDir); err != nil {
 		return err
 	}
 	if err := validateRelativePath("ecosystem", d.Ecosystem); err != nil {
@@ -771,12 +797,25 @@ func validateRelativePath(label, value string) error {
 	return nil
 }
 
+func validateTargetName(value string) error {
+	if err := validateRelativePath("target name", value); err != nil {
+		return err
+	}
+	if filepath.Base(value) != value || strings.ContainsAny(value, `/\\`) {
+		return fmt.Errorf("unsafe target name %q: must be one path component", value)
+	}
+	return nil
+}
+
 // targetName is the from_<x> directory component. Prefers the basename of the
 // origin remote, then any https remote, then the path basename. brief's
 // Remotes is a map so plain iteration would pick a deploy remote (dokku,
 // heroku) at random.
 func targetName(t *hyrum.Target) string {
-	if t.Report.Git != nil {
+	if t.Name != "" {
+		return t.Name
+	}
+	if t.Report != nil && t.Report.Git != nil {
 		remotes := t.Report.Git.Remotes
 		if u := remotes["origin"]; u != "" {
 			return remoteBasename(u)

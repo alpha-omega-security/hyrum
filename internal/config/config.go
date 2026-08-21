@@ -29,6 +29,7 @@ type File struct {
 	Models       map[string]string     `yaml:"models,omitempty"`
 	Out          *string               `yaml:"out,omitempty"`
 	Work         *string               `yaml:"work,omitempty"`
+	TargetName   *string               `yaml:"target_name,omitempty"`
 	OutlineBytes *int                  `yaml:"outline_bytes,omitempty"`
 	Deps         map[string]Dependency `yaml:"deps,omitempty"`
 }
@@ -128,9 +129,10 @@ func Parse(data []byte) (File, error) {
 
 func (cfg File) validate() error {
 	for name, value := range map[string]*string{
-		"backend": cfg.Backend,
-		"out":     cfg.Out,
-		"work":    cfg.Work,
+		"backend":     cfg.Backend,
+		"out":         cfg.Out,
+		"work":        cfg.Work,
+		"target_name": cfg.TargetName,
 	} {
 		if value != nil && strings.TrimSpace(*value) == "" {
 			return fmt.Errorf("%s must not be empty", name)
@@ -192,7 +194,7 @@ func validateNodeTypes(root *yaml.Node) error {
 			return fmt.Errorf("configuration keys must be strings (line %d)", key.Line)
 		}
 		switch key.Value {
-		case "backend", "out", "work":
+		case "backend", "out", "work", "target_name":
 			if err := requireTag(key.Value, value, yamlStringTag); err != nil {
 				return err
 			}
