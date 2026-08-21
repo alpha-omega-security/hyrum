@@ -131,7 +131,7 @@ func TestRunBatchedGenerateSkillsMergesOutputsAndMetadata(t *testing.T) {
 		}
 	}
 
-	meta := generationMeta("target", hyrum.Dep{Name: "sqlalchemy"}, run.LastResult, run.Generate, run.TotalCost)
+	meta := generationMeta("target", hyrum.Dep{Name: "sqlalchemy"}, stagedDependency{}, run.LastResult, run.Generate, run.TotalCost)
 	addBatchMetadata(meta, 2, 500, run)
 	if _, ok := meta["session_id"]; ok {
 		t.Fatalf("top-level session retained for a multi-session run: %v", meta)

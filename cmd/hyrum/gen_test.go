@@ -498,107 +498,142 @@ func TestResolveModelsUsesHarnessTier(t *testing.T) {
 	}
 }
 
-func TestCheckoutVersion(t *testing.T) {
-	dir := t.TempDir()
-	git := func(args ...string) {
-		t.Helper()
-		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
-		cmd.Env = append(os.Environ(),
-			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
-			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
-		}
+type checkoutFixture struct {
+	dir    string
+	marker string
+}
+
+func newCheckoutFixture(t *testing.T) checkoutFixture {
+	t.Helper()
+	fixture := checkoutFixture{dir: t.TempDir()}
+	fixture.marker = filepath.Join(fixture.dir, "api.txt")
+	fixture.git(t, "init", "-q")
+	fixture.write(t, "v1.0.0")
+	fixture.git(t, "add", ".")
+	fixture.git(t, "commit", "-q", "-m", "one")
+	fixture.git(t, "tag", "v1.0.0")
+	fixture.write(t, "v1.1.0")
+	fixture.git(t, "commit", "-q", "-am", "two")
+	fixture.git(t, "tag", "1.1.0")
+	fixture.write(t, "head")
+	fixture.git(t, "commit", "-q", "-am", "three")
+	return fixture
+}
+
+func (f checkoutFixture) git(t *testing.T, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", f.dir}, args...)...)
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
+		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
 	}
-	marker := filepath.Join(dir, "api.txt")
-	write := func(s string) { _ = os.WriteFile(marker, []byte(s), 0o644) }
-	read := func() string { b, _ := os.ReadFile(marker); return string(b) }
+}
 
-	git("init", "-q")
-	write("v1.0.0")
-	git("add", ".")
-	git("commit", "-q", "-m", "one")
-	git("tag", "v1.0.0")
-	write("v1.1.0")
-	git("commit", "-q", "-am", "two")
-	git("tag", "1.1.0")
-	write("head")
-	git("commit", "-q", "-am", "three")
+func (f checkoutFixture) write(t *testing.T, value string) {
+	t.Helper()
+	if err := os.WriteFile(f.marker, []byte(value), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
 
+func (f checkoutFixture) read(t *testing.T) string {
+	t.Helper()
+	contents, err := os.ReadFile(f.marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(contents)
+}
+
+func (f checkoutFixture) branch(t *testing.T) string {
+	t.Helper()
+	cmd := exec.Command("git", "-C", f.dir, "symbolic-ref", "--short", "HEAD")
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func TestCheckoutVersionRestoresAfterCancellation(t *testing.T) {
+	fixture := newCheckoutFixture(t)
+	checkoutCtx, cancel := context.WithCancel(context.Background())
+	restore, tag, matched := checkoutVersion(checkoutCtx, fixture.dir, "v1.0.0", "")
+	if !matched || tag != "v1.0.0" {
+		t.Fatalf("checkout = matched %t tag %q, want v1.0.0", matched, tag)
+	}
+	if got := fixture.read(t); got != "v1.0.0" {
+		t.Fatalf("after checkout marker = %q, want v1.0.0", got)
+	}
+	cancel()
+	restore()
+	if got := fixture.read(t); got != "head" {
+		t.Fatalf("after restore marker = %q, want head", got)
+	}
+}
+
+func TestCheckoutVersionTogglesVPrefix(t *testing.T) {
+	fixture := newCheckoutFixture(t)
 	ctx := context.Background()
-
-	t.Run("exact tag then restore", func(t *testing.T) {
-		checkoutCtx, cancel := context.WithCancel(ctx)
-		restore := checkoutVersion(checkoutCtx, dir, "v1.0.0", "")
-		if read() != "v1.0.0" {
-			t.Fatalf("after checkout v1.0.0 marker = %q, want %q", read(), "v1.0.0")
-		}
-		cancel()
-		restore()
-		if read() != "head" {
-			t.Fatalf("after restore marker = %q, want %q", read(), "head")
-		}
-	})
-
-	t.Run("toggled v-prefix", func(t *testing.T) {
-		// version has a leading v, tag does not.
-		restore := checkoutVersion(ctx, dir, "v1.1.0", "")
-		if read() != "v1.1.0" {
-			t.Fatalf("after checkout v1.1.0 marker = %q; expected tag %q to match", read(), "1.1.0")
-		}
-		restore()
-		// version has no leading v, tag does.
-		restore = checkoutVersion(ctx, dir, "1.0.0", "")
-		if read() != "v1.0.0" {
-			t.Fatalf("after checkout 1.0.0 marker = %q; expected tag %q to match", read(), "v1.0.0")
-		}
-		restore()
-	})
-
-	t.Run("manifest constraint", func(t *testing.T) {
-		restore := checkoutVersion(ctx, dir, "^1.0", hyrum.EcoNPM)
-		if read() != "v1.0.0" {
-			t.Fatalf("after checkout ^1.0 marker = %q, want %q", read(), "v1.0.0")
-		}
-		restore()
-	})
-
-	for _, version := range []string{"--ignore-skip-worktree-bits", "v1.1.0~1"} {
-		t.Run("untrusted version "+version, func(t *testing.T) {
-			git("checkout", "-q", "-f", "-B", "safe-head")
-			checkoutVersion(ctx, dir, version, hyrum.EcoNPM)()
-			cmd := exec.Command("git", "-C", dir, "symbolic-ref", "--short", "HEAD")
-			out, err := cmd.Output()
-			if err != nil {
-				t.Fatalf("version %q detached HEAD: %v", version, err)
-			}
-			if got := strings.TrimSpace(string(out)); got != "safe-head" {
-				t.Fatalf("branch after version %q = %q, want safe-head", version, got)
-			}
-		})
+	restore, tag, matched := checkoutVersion(ctx, fixture.dir, "v1.1.0", "")
+	if !matched || tag != "1.1.0" || fixture.read(t) != "v1.1.0" {
+		t.Fatalf("v-prefixed checkout = matched %t tag %q marker %q", matched, tag, fixture.read(t))
 	}
+	restore()
+	restore, tag, matched = checkoutVersion(ctx, fixture.dir, "1.0.0", "")
+	if !matched || tag != "v1.0.0" || fixture.read(t) != "v1.0.0" {
+		t.Fatalf("plain checkout = matched %t tag %q marker %q", matched, tag, fixture.read(t))
+	}
+	restore()
+}
 
-	t.Run("unmatched tag is a no-op", func(t *testing.T) {
-		restore := checkoutVersion(ctx, dir, "9.9.9", "")
-		if read() != "head" {
-			t.Fatalf("unmatched checkout moved working tree: marker = %q", read())
-		}
+func TestCheckoutVersionRejectsRevisionLikeInputs(t *testing.T) {
+	fixture := newCheckoutFixture(t)
+	for _, version := range []string{"--ignore-skip-worktree-bits", "v1.1.0~1"} {
+		fixture.git(t, "checkout", "-q", "-f", "-B", "safe-head")
+		restore, _, _ := checkoutVersion(context.Background(), fixture.dir, version, hyrum.EcoNPM)
 		restore()
-		if read() != "head" {
-			t.Fatalf("no-op restore moved working tree: marker = %q", read())
+		if got := fixture.branch(t); got != "safe-head" {
+			t.Fatalf("branch after version %q = %q, want safe-head", version, got)
 		}
-	})
+	}
+}
 
-	t.Run("empty version is a no-op", func(t *testing.T) {
-		checkoutVersion(ctx, dir, "", "")()
-		if read() != "head" {
-			t.Fatalf("empty-version checkout moved working tree: marker = %q", read())
-		}
-	})
+func TestCheckoutVersionUnmatchedTagIsNoOp(t *testing.T) {
+	fixture := newCheckoutFixture(t)
+	restore, tag, matched := checkoutVersion(context.Background(), fixture.dir, "9.9.9", "")
+	if matched || tag != "" {
+		t.Fatalf("unmatched checkout = matched %t tag %q", matched, tag)
+	}
+	if got := fixture.read(t); got != "head" {
+		t.Fatalf("unmatched checkout moved working tree: marker = %q", got)
+	}
+	restore()
+	if got := fixture.read(t); got != "head" {
+		t.Fatalf("no-op restore moved working tree: marker = %q", got)
+	}
+}
 
-	t.Run("non-git dir is a no-op", func(t *testing.T) {
-		checkoutVersion(ctx, t.TempDir(), "v1.0.0", "")()
-	})
+func TestCheckoutVersionEmptyVersionIsNoOp(t *testing.T) {
+	fixture := newCheckoutFixture(t)
+	restore, _, matched := checkoutVersion(context.Background(), fixture.dir, "", "")
+	restore()
+	if matched {
+		t.Fatal("empty version reported a matching tag")
+	}
+	if got := fixture.read(t); got != "head" {
+		t.Fatalf("empty-version checkout moved working tree: marker = %q", got)
+	}
+}
+
+func TestCheckoutVersionNonGitDirectoryIsNoOp(t *testing.T) {
+	restore, _, matched := checkoutVersion(context.Background(), t.TempDir(), "v1.0.0", "")
+	restore()
+	if matched {
+		t.Fatal("non-git directory reported a matching tag")
+	}
 }
 
 func TestPipelinePropagatesModelsToEverySkill(t *testing.T) {
@@ -643,11 +678,47 @@ func TestConfiguredBaselineReachesMetadata(t *testing.T) {
 	if len(selected) != 1 {
 		t.Fatalf("selected = %+v", selected)
 	}
-	meta := generationMeta("target", selected[0], &hyrum.RunResult{}, hyrum.GenerateResult{}, 0)
+	meta := generationMeta("target", selected[0], stagedDependency{Baseline: baseline}, &hyrum.RunResult{}, hyrum.GenerateResult{}, 0)
 	if got := meta["baseline"]; got != baseline {
 		t.Fatalf("baseline = %v, want %q", got, baseline)
 	}
+	if got := meta["constraint"]; got != baseline {
+		t.Fatalf("constraint = %v, want %q", got, baseline)
+	}
 	if target.Deps[0].Version != "7.4.2" {
 		t.Fatalf("target dependency mutated: %+v", target.Deps[0])
+	}
+}
+
+func TestGenerationMetaPreservesBaselineEvidenceGaps(t *testing.T) {
+	staged := stagedDependency{
+		Baseline:   "8.10.0",
+		OutlineRef: "v8.10.0",
+	}
+	meta := generationMeta(
+		"target",
+		hyrum.Dep{PURL: "pkg:pypi/elasticsearch", Ecosystem: hyrum.EcoPyPI, Version: ">=8.10,<10"},
+		staged,
+		&hyrum.RunResult{},
+		hyrum.GenerateResult{},
+		0,
+	)
+	if meta["constraint"] != ">=8.10,<10" || meta["baseline"] != "8.10.0" {
+		t.Fatalf("version metadata = %+v", meta)
+	}
+	if meta["outline_ref"] != staged.OutlineRef {
+		t.Fatalf("evidence metadata = %+v", meta)
+	}
+	unresolved := stagedDependency{BaselineError: "registry versions unavailable", OutlineError: "source tag unavailable"}
+	meta = generationMeta("target", hyrum.Dep{}, unresolved, &hyrum.RunResult{}, hyrum.GenerateResult{}, 0)
+	if meta["baseline_error"] != unresolved.BaselineError || meta["outline_error"] != unresolved.OutlineError {
+		t.Fatalf("unresolved metadata = %+v", meta)
+	}
+}
+
+func TestRunVerifyRequiresResolvedBaseline(t *testing.T) {
+	results := (&pipeline{}).runVerify(context.Background(), t.TempDir(), hyrum.Dep{}, "", "9.5.0", nil)
+	if len(results) != 1 || results[0].Error != "baseline version is unresolved" {
+		t.Fatalf("verify results = %+v", results)
 	}
 }
