@@ -20,6 +20,8 @@ deps:
   ws:
     baseline: 8.17.1
     skip: false
+    activations:
+      - ws-driver
 `)
 
 	cfg, source, err := Load(target, path)
@@ -41,6 +43,9 @@ deps:
 	}
 	if dep.Skip == nil || *dep.Skip {
 		t.Fatalf("skip = %v", dep.Skip)
+	}
+	if len(dep.Activations) != 1 || dep.Activations[0] != "ws-driver" {
+		t.Fatalf("activations = %v", dep.Activations)
 	}
 }
 
@@ -89,13 +94,16 @@ func TestLoadUnreadableExplicitConfigFails(t *testing.T) {
 
 func TestParseRejectsMalformedUnknownAndIncorrectTypes(t *testing.T) {
 	tests := map[string]string{
-		"malformed":       "backend: [\n",
-		"unknown top key": "backed: codex\n",
-		"unknown dep key": "deps:\n  ws:\n    basline: 1.0\n",
-		"backend type":    "backend: true\n",
-		"skip type":       "deps:\n  ws:\n    skip: yes-please\n",
-		"null":            "work: null\n",
-		"second document": "backend: codex\n---\nbackend: claude\n",
+		"malformed":        "backend: [\n",
+		"unknown top key":  "backed: codex\n",
+		"unknown dep key":  "deps:\n  ws:\n    basline: 1.0\n",
+		"backend type":     "backend: true\n",
+		"skip type":        "deps:\n  ws:\n    skip: yes-please\n",
+		"activations type": "deps:\n  ws:\n    activations: ws-driver\n",
+		"activation type":  "deps:\n  ws:\n    activations: [true]\n",
+		"empty activation": "deps:\n  ws:\n    activations: ['']\n",
+		"null":             "work: null\n",
+		"second document":  "backend: codex\n---\nbackend: claude\n",
 	}
 	for name, body := range tests {
 		t.Run(name, func(t *testing.T) {

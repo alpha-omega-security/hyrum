@@ -4,6 +4,8 @@ import (
 	"reflect"
 	"testing"
 
+	hyrumconfig "github.com/alpha-omega-security/hyrum/internal/config"
+	"github.com/alpha-omega-security/hyrum/internal/hyrum"
 	"github.com/alpha-omega-security/hyrum/internal/hyrum/usage"
 )
 
@@ -20,6 +22,24 @@ func TestResolveUsageOptionsUsesDefaultScopes(t *testing.T) {
 	opts.Scopes[0] = usage.ScopeTest
 	if defaults[0] != usage.ScopeProduction {
 		t.Error("resolved options changed the caller's default scopes")
+	}
+}
+
+func TestWithConfiguredActivationsUsesPURLOverride(t *testing.T) {
+	dep := hyrum.Dep{Name: "driver", PURL: "pkg:pypi/driver"}
+	nameActivations := []string{"name-driver"}
+	purlActivations := []string{"purl-driver"}
+	opts := withConfiguredActivations(usage.IndexOptions{}, []hyrum.Dep{dep}, map[string]hyrumconfig.Dependency{
+		"driver":          {Activations: nameActivations},
+		"pkg:pypi/driver": {Activations: purlActivations},
+	})
+	if !reflect.DeepEqual(opts.Activations[dep.PURL], purlActivations) {
+		t.Fatalf("activations = %v", opts.Activations)
+	}
+
+	opts.Activations[dep.PURL][0] = "changed"
+	if purlActivations[0] != "purl-driver" {
+		t.Error("configured activation slice was not copied")
 	}
 }
 
