@@ -1,0 +1,86 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "enabledManagers": ["gomod", "github-actions", "custom.regex"],
+  "dependencyDashboard": true,
+  "automerge": false,
+  "internalChecksFilter": "strict",
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Update the govulncheck workflow pin",
+      "managerFilePatterns": ["/^\\.github/workflows/ci\\.yml$/"],
+      "matchStrings": [
+        "go install golang\\.org/x/vuln/cmd/govulncheck@(?<currentValue>v\\d+\\.\\d+\\.\\d+)"
+      ],
+      "packageNameTemplate": "golang.org/x/vuln",
+      "depNameTemplate": "govulncheck",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Update the zizmor workflow pin",
+      "managerFilePatterns": ["/^\\.github/workflows/ci\\.yml$/"],
+      "matchStrings": [
+        "pipx install zizmor==(?<currentValue>\\d+\\.\\d+\\.\\d+)"
+      ],
+      "packageNameTemplate": "zizmor",
+      "depNameTemplate": "zizmor",
+      "datasourceTemplate": "pypi",
+      "versioningTemplate": "semver"
+    }
+  ],
+  "packageRules": [
+    {
+      "matchManagers": ["gomod"],
+      "groupName": "Go modules",
+      "minimumReleaseAge": "7 days",
+      "postUpdateOptions": ["gomodTidy"]
+    },
+    {
+      "description": "Raising the go directive raises the minimum Go version for every consumer",
+      "matchManagers": ["gomod"],
+      "matchDepTypes": ["golang", "toolchain"],
+      "groupName": "Go language version",
+      "dependencyDashboardApproval": true
+    },
+    {
+      "matchManagers": ["gomod"],
+      "matchDepTypes": ["indirect"],
+      "enabled": true
+    },
+    {
+      "description": "Require explicit approval before starting a Go module major-version migration",
+      "matchManagers": ["gomod"],
+      "matchUpdateTypes": ["major"],
+      "dependencyDashboardApproval": true
+    },
+    {
+      "description": "An indirect dependency's major version is decided by whatever requires it, never here",
+      "matchManagers": ["gomod"],
+      "matchDepTypes": ["indirect"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    },
+    {
+      "matchManagers": ["github-actions"],
+      "groupName": "GitHub Actions",
+      "minimumReleaseAge": "7 days"
+    },
+    {
+      "description": "Runner images are also pinned in the test matrix, which Renovate cannot see",
+      "matchManagers": ["github-actions"],
+      "matchDepTypes": ["github-runner"],
+      "enabled": false
+    },
+    {
+      "matchManagers": ["custom.regex"],
+      "minimumReleaseAge": "7 days"
+    }
+  ],
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "automerge": false
+  }
+}
