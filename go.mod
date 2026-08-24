@@ -14,7 +14,7 @@ require (
 	github.com/git-pkgs/managers v0.10.1
 	github.com/git-pkgs/outline v0.2.1
 	github.com/git-pkgs/provides v0.2.0
-	github.com/git-pkgs/purl v0.1.16
+	github.com/git-pkgs/purl v0.1.17
 	github.com/git-pkgs/registries v0.7.0
 	github.com/git-pkgs/vers v0.5.0
 	github.com/git-pkgs/vulns v0.2.2
