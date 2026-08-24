@@ -152,7 +152,7 @@ jobs:
             ${{ runner.os }}-go-${{ github.job }}-
 
       - name: Install govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
 
       - name: Scan for known vulnerabilities
         run: govulncheck ./...
