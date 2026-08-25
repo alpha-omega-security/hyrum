@@ -28,11 +28,12 @@
   "$defs": {
     "site": {
       "type": "object",
-      "required": ["file", "line"],
+      "required": ["file", "line", "scope"],
       "properties": {
         "file": {"type": "string"},
         "line": {"type": "integer"},
-        "context": {"type": "string"}
+        "context": {"type": "string"},
+        "scope": {"enum": ["production", "test", "example", "documentation"]}
       }
     }
   }

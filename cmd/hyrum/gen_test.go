@@ -7,12 +7,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/alpha-omega-security/harness"
 	hyrumconfig "github.com/alpha-omega-security/hyrum/internal/config"
 	"github.com/alpha-omega-security/hyrum/internal/hyrum"
+	"github.com/alpha-omega-security/hyrum/internal/hyrum/usage"
 	"github.com/git-pkgs/brief"
 )
 
@@ -47,6 +49,14 @@ func TestAnyRan(t *testing.T) {
 	}
 	if !anyRan([]hyrum.VerifyResult{{Error: "x"}, {Version: "2.0", Fail: 1}}) {
 		t.Error("mixed: one ran")
+	}
+}
+
+func TestNewPipelineIndexesProductionUsageByDefault(t *testing.T) {
+	p := newPipeline(harness.ClaudeHarness{}, t.TempDir(), t.TempDir(), false, "")
+	want := []usage.Scope{usage.ScopeProduction}
+	if !reflect.DeepEqual(p.usageOptions.Scopes, want) {
+		t.Errorf("usage scopes = %v, want %v", p.usageOptions.Scopes, want)
 	}
 }
 
