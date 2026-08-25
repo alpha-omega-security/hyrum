@@ -31,11 +31,12 @@ type File struct {
 	Deps    map[string]Dependency `yaml:"deps,omitempty"`
 }
 
-// Dependency contains generation overrides for one dependency, keyed by its
-// manifest name or full purl in File.Deps.
+// Dependency contains settings for one dependency, keyed by its manifest
+// name or full purl in File.Deps.
 type Dependency struct {
-	Baseline *string `yaml:"baseline,omitempty"`
-	Skip     *bool   `yaml:"skip,omitempty"`
+	Baseline    *string  `yaml:"baseline,omitempty"`
+	Skip        *bool    `yaml:"skip,omitempty"`
+	Activations []string `yaml:"activations,omitempty"`
 }
 
 var modelSkills = map[string]bool{
@@ -148,6 +149,11 @@ func (cfg File) validate() error {
 		if dep.Baseline != nil && strings.TrimSpace(*dep.Baseline) == "" {
 			return fmt.Errorf("deps.%s.baseline must not be empty", key)
 		}
+		for i, activation := range dep.Activations {
+			if strings.TrimSpace(activation) == "" {
+				return fmt.Errorf("deps.%s.activations[%d] must not be empty", key, i)
+			}
+		}
 	}
 	return nil
 }
@@ -240,7 +246,23 @@ func validateDependencies(node *yaml.Node) error {
 				if err := requireTag("deps."+key.Value+".skip", fieldValue, yamlBoolTag); err != nil {
 					return err
 				}
+			case "activations":
+				if err := validateStringSequence("deps."+key.Value+".activations", fieldValue); err != nil {
+					return err
+				}
 			}
+		}
+	}
+	return nil
+}
+
+func validateStringSequence(path string, node *yaml.Node) error {
+	if node.Kind != yaml.SequenceNode {
+		return fmt.Errorf("%s must be a sequence (line %d)", path, node.Line)
+	}
+	for i, value := range node.Content {
+		if err := requireTag(fmt.Sprintf("%s[%d]", path, i), value, yamlStringTag); err != nil {
+			return err
 		}
 	}
 	return nil

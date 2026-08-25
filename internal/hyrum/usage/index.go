@@ -83,25 +83,28 @@ var skipDirs = map[string]bool{
 	"log":          true,
 }
 
-// scanWithOptions walks root, extracts imports via outline.Imports, keeps those whose
-// module matches one of the dep's provided names, records their bound
-// identifiers as receivers, then calls outline.Refs to collect direct member
-// accesses on those receivers.
+// scanWithOptions walks root, records configured activation strings, and
+// extracts imports via outline.Imports. Matching import bindings become
+// receivers for direct member references from outline.Refs.
 func scanWithOptions(
 	ctx context.Context,
 	root string,
 	sp spec,
 	provided []provides.ProvidedName,
+	activations []string,
 	opts IndexOptions,
 ) (*Surface, error) {
 	const key = "dependency"
-	surfaces, err := scanManyWithOptions(ctx, root, sp, []scanTarget{{key: key, provided: provided}}, opts)
+	surfaces, err := scanManyWithOptions(ctx, root, sp, []scanTarget{{
+		key: key, provided: provided, activations: activations,
+	}}, opts)
 	return surfaces[key], err
 }
 
 type scanTarget struct {
-	key      string
-	provided []provides.ProvidedName
+	key         string
+	provided    []provides.ProvidedName
+	activations []string
 }
 
 func scanManyWithOptions(
@@ -188,20 +191,23 @@ func scanFileMany(
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	lines := strings.Split(string(src), "\n")
 	imports, ok := outline.Imports(src, rel)
 	if !ok {
-		return ctx.Err()
+		return recordActivations(ctx, collectors, targets, rel, scope, lines)
 	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	lines := strings.Split(string(src), "\n")
 
 	receivers, err := seedReceivers(ctx, sp, targets)
 	if err != nil {
 		return err
 	}
 	if err := recordMatchingImports(ctx, collectors, sp, imports, rel, scope, lines, targets, receivers); err != nil {
+		return err
+	}
+	if err := recordActivations(ctx, collectors, targets, rel, scope, lines); err != nil {
 		return err
 	}
 	owners := collectReceiverOwners(receivers, collectors)
@@ -217,6 +223,93 @@ func scanFileMany(
 		return err
 	}
 	return recordRefs(ctx, owners, refs, rel, scope, lines)
+}
+
+func recordActivations(
+	ctx context.Context,
+	collectors map[string]*collector,
+	targets []scanTarget,
+	rel string,
+	scope Scope,
+	lines []string,
+) error {
+	owners := activationCollectors(collectors, targets)
+	if len(owners) == 0 {
+		return nil
+	}
+	for i, line := range lines {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		lineNumber := i + 1
+		for _, activation := range quotedLiterals(line, rel) {
+			for _, collector := range owners[activation] {
+				if !collector.hasSite(activation, rel, lineNumber) {
+					collector.add(activation, kindActivation, rel, lineNumber, lineAt(lines, lineNumber), scope)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func activationCollectors(
+	collectors map[string]*collector,
+	targets []scanTarget,
+) map[string][]*collector {
+	owners := map[string][]*collector{}
+	for _, target := range targets {
+		for _, activation := range target.activations {
+			owners[activation] = append(owners[activation], collectors[target.key])
+		}
+	}
+	return owners
+}
+
+func quotedLiterals(line, filename string) []string {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" || commentOnlyLine(trimmed, filename) {
+		return nil
+	}
+	var literals []string
+	for i := 0; i < len(line); i++ {
+		quote := line[i]
+		if quote != '\'' && quote != '"' && quote != '`' {
+			continue
+		}
+		var value strings.Builder
+		for i++; i < len(line); i++ {
+			if line[i] == '\\' && i+1 < len(line) {
+				i++
+				value.WriteByte(line[i])
+				continue
+			}
+			if line[i] == quote {
+				literals = append(literals, value.String())
+				break
+			}
+			value.WriteByte(line[i])
+		}
+	}
+	return literals
+}
+
+func commentOnlyLine(line, filename string) bool {
+	ext := filepath.Ext(filename)
+	switch ext {
+	case ".py", ".rb", ".rake", ".gemspec", ".ex", ".exs":
+		return strings.HasPrefix(line, "#")
+	case ".php":
+		return strings.HasPrefix(line, "#") || slashCommentLine(line)
+	default:
+		return slashCommentLine(line)
+	}
+}
+
+func slashCommentLine(line string) bool {
+	return strings.HasPrefix(line, "//") || strings.HasPrefix(line, "/*") ||
+		strings.HasPrefix(line, "* ") || strings.HasPrefix(line, "*\t") ||
+		strings.HasPrefix(line, "*/")
 }
 
 // receivers maps each target's local identifiers to export-side names.
@@ -370,39 +463,61 @@ func recordImport(
 	}
 }
 
-// collector accumulates symbols across files, keyed by symbol name so
-// multiple sites merge. Insertion order is retained for stable output.
+// collector accumulates symbols across files. Activation sites remain
+// distinct from imported symbols with the same name.
 type collector struct {
-	syms  map[string]*Symbol
-	order []string
+	syms  map[symbolKey]*Symbol
+	order []symbolKey
+}
+
+type symbolKey struct {
+	name       string
+	activation bool
 }
 
 const (
-	kindNamed  = "named"
-	kindMember = "member"
+	kindNamed      = "named"
+	kindMember     = "member"
+	kindActivation = "activation"
 )
 
 func newCollector() *collector {
-	return &collector{syms: map[string]*Symbol{}}
+	return &collector{syms: map[symbolKey]*Symbol{}}
+}
+
+func (c *collector) hasSite(name, file string, line int) bool {
+	for _, key := range []symbolKey{{name: name}, {name: name, activation: true}} {
+		symbol := c.syms[key]
+		if symbol == nil {
+			continue
+		}
+		for _, site := range symbol.Sites {
+			if site.File == file && site.Line == line {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (c *collector) add(name, kind, file string, line int, ctx string, scope Scope) {
 	if name == "" {
 		return
 	}
-	s, ok := c.syms[name]
+	key := symbolKey{name: name, activation: kind == kindActivation}
+	s, ok := c.syms[key]
 	if !ok {
 		s = &Symbol{Name: name, Kind: kind}
-		c.syms[name] = s
-		c.order = append(c.order, name)
+		c.syms[key] = s
+		c.order = append(c.order, key)
 	}
 	s.Sites = append(s.Sites, Site{File: file, Line: line, Context: ctx, Scope: scope})
 }
 
 func (c *collector) surface() *Surface {
 	surf := &Surface{Symbols: make([]Symbol, 0, len(c.order))}
-	for _, name := range c.order {
-		surf.Symbols = append(surf.Symbols, *c.syms[name])
+	for _, key := range c.order {
+		surf.Symbols = append(surf.Symbols, *c.syms[key])
 	}
 	return surf
 }

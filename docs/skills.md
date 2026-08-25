@@ -18,7 +18,7 @@ Before any model step runs, `stageContext` and `GatherHistory` write:
 |---|---|---|
 | `target/` | symlink to the target repository | usage, generate |
 | `dep/` | full clone of the dependency's source repo (best-effort) | history, generate |
-| `usage.json` | scoped `outline.Imports`/`Refs` over `target/` filtered to this dep via `provides` | usage, generate |
+| `usage.json` | scoped imports, refs, and configured activation strings over `target/` | usage, generate |
 | `dep-outline.md` | `outline.Pack` of `dep/`, signature-only | usage, generate |
 | `context.json` | purl, name, ecosystem, baseline version, repo URL, latest version, exported-symbol count | all |
 | `git-log.txt` | target's `git log --all` filtered to commits mentioning the dep | history |
@@ -30,8 +30,9 @@ Before any model step runs, `stageContext` and `GatherHistory` write:
 Reads `usage.json`, `target/`, `dep-outline.md`, `context.json`. Writes
 `surface.json`.
 
-Static extraction finds import entry points and same-file member accesses,
-but the interesting behaviour is often on values derived from those:
+Static extraction finds import entry points, configured activation strings,
+and same-file member accesses, but the interesting behaviour is often on
+values derived from those:
 `const wss = new WsServer(opts)` followed elsewhere by
 `this.wss.handleUpgrade(req, socket, head, cb)` where `cb`'s first argument
 has `.readyState` read on it. This step follows each `usage.json` entry point

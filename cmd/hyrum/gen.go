@@ -130,6 +130,7 @@ func cmdGen(ctx context.Context, args []string) error {
 	if len(selected) == 0 {
 		return fmt.Errorf("no dependencies selected (target has %d direct deps across %v)", len(t.Deps), t.Ecosystems())
 	}
+	usageOptions = withConfiguredActivations(usageOptions, selected, cfg.Deps)
 
 	h, err := harness.ByName(resolved.backend)
 	if err != nil {
@@ -854,15 +855,7 @@ func selectGenDeps(t *hyrum.Target, names stringList, overrides map[string]hyrum
 	selected := selectDeps(t, names)
 	out := make([]hyrum.Dep, 0, len(selected))
 	for _, dep := range selected {
-		override := overrides[dep.Name]
-		if byPURL, ok := overrides[dep.PURL]; ok {
-			if byPURL.Baseline != nil {
-				override.Baseline = byPURL.Baseline
-			}
-			if byPURL.Skip != nil {
-				override.Skip = byPURL.Skip
-			}
-		}
+		override := dependencyConfigFor(dep, overrides)
 		if len(names) == 0 && override.Skip != nil && *override.Skip {
 			continue
 		}
@@ -872,6 +865,24 @@ func selectGenDeps(t *hyrum.Target, names stringList, overrides map[string]hyrum
 		out = append(out, dep)
 	}
 	return out
+}
+
+func dependencyConfigFor(dep hyrum.Dep, overrides map[string]hyrumconfig.Dependency) hyrumconfig.Dependency {
+	override := overrides[dep.Name]
+	byPURL, ok := overrides[dep.PURL]
+	if !ok {
+		return override
+	}
+	if byPURL.Baseline != nil {
+		override.Baseline = byPURL.Baseline
+	}
+	if byPURL.Skip != nil {
+		override.Skip = byPURL.Skip
+	}
+	if byPURL.Activations != nil {
+		override.Activations = byPURL.Activations
+	}
+	return override
 }
 
 func writeJSON(path string, v any) error {

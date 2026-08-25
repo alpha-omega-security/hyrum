@@ -1,5 +1,6 @@
 # Hyrum configuration. Copy this file to <target>/hyrum.yaml for automatic
-# discovery, or pass it explicitly with `hyrum gen --config <path> ...`.
+# discovery, or pass it explicitly with `hyrum gen --config <path> ...` or
+# `hyrum surface --config <path> ...`.
 # All keys are optional. Explicit command-line flags win over config values,
 # which win over built-in defaults. Unknown keys and incorrect types are
 # errors.
@@ -30,5 +31,8 @@
 #   ws:
 #     baseline: "8.17.1"   # staged/recorded baseline; target files are unchanged
 #     skip: false
+#   aiosqlite:
+#     activations:          # exact quoted strings that select this dependency
+#       - aiosqlite
 #   pkg:npm/lodash:
 #     skip: true           # omitted by default; explicit --dep still includes it

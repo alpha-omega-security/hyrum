@@ -30,7 +30,7 @@ func TestWalkSourceFilesStopsAfterCancellation(t *testing.T) {
 func TestScanReturnsCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	_, err := scanWithOptions(ctx, t.TempDir(), specs["pypi"], nil, IndexOptions{})
+	_, err := scanWithOptions(ctx, t.TempDir(), specs["pypi"], nil, nil, IndexOptions{})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("scan error = %v, want context canceled", err)
 	}
