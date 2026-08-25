@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -52,20 +51,31 @@ func surfaceSummary(ctx context.Context, t *hyrum.Target, directOnly, asJSON boo
 		Sites     int    `json:"sites"`
 		Indexer   string `json:"indexer"`
 	}
-	var rows []row
+	var deps []hyrum.Dep
+	var depPURLs []string
 	for _, d := range t.Deps {
 		if directOnly && !d.Direct {
 			continue
 		}
+		deps = append(deps, d)
+		depPURLs = append(depPURLs, d.PURL)
+	}
+	indexed, err := usage.IndexMany(ctx, t.Path, depPURLs)
+	if err != nil {
+		return err
+	}
+
+	var rows []row
+	for _, d := range deps {
 		r := row{Name: d.Name, Ecosystem: d.Ecosystem, Version: d.Version, Scope: d.Scope}
-		if s, err := usage.Index(ctx, t.Path, d.PURL); err == nil {
+		result, ok := indexed[d.PURL]
+		if ok && result.Err == nil && result.Surface != nil {
+			s := result.Surface
 			r.Symbols = s.UsedCount()
 			for _, sym := range s.Symbols {
 				r.Sites += len(sym.Sites)
 			}
 			r.Indexer = "ok"
-		} else if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return err
 		} else {
 			r.Indexer = "unsupported"
 		}
