@@ -70,6 +70,9 @@ func (m *pythonVenvManager) Add(
 }
 
 func pythonVenvExecutable(root string) string {
+	if absolute, err := filepath.Abs(root); err == nil {
+		root = absolute
+	}
 	if runtime.GOOS == "windows" {
 		return filepath.Join(root, pythonVenvDir, "Scripts", "python.exe")
 	}

@@ -79,7 +79,16 @@ func TestVerifyMatrixPyPI(t *testing.T) {
 		t.Skip("python3 not on PATH")
 	}
 
-	scratch := t.TempDir()
+	working := t.TempDir()
+	previous, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(working); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(previous) })
+	scratch := "verify"
 	files := []GeneratedFile{{
 		Path: "test_idna.py",
 		Content: `import idna

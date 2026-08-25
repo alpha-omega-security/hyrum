@@ -47,3 +47,10 @@ func TestPythonVenvTestCommandUsesScratchInterpreter(t *testing.T) {
 		t.Fatalf("interpreter path = %q, want absolute", got[0])
 	}
 }
+
+func TestPythonVenvTestCommandResolvesRelativeScratch(t *testing.T) {
+	got := PythonVenvTestCommand(filepath.Join("relative", "scratch"))("tests", nil)
+	if !filepath.IsAbs(got[0]) {
+		t.Fatalf("interpreter path = %q, want absolute path for relative scratch", got[0])
+	}
+}
