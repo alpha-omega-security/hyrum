@@ -123,6 +123,14 @@ func TestPrepareWorkspaceRemovesTransientArtifacts(t *testing.T) {
 	if err := os.WriteFile(keep, nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
+	for _, name := range transientWorkspaceDirs {
+		if err := os.Mkdir(filepath.Join(ws, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(ws, name, "stale"), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	if err := prepareWorkspace(ws); err != nil {
 		t.Fatal(err)
@@ -130,6 +138,11 @@ func TestPrepareWorkspaceRemovesTransientArtifacts(t *testing.T) {
 	for _, name := range transientWorkspaceFiles {
 		if _, err := os.Stat(filepath.Join(ws, name)); !os.IsNotExist(err) {
 			t.Errorf("transient artifact %q remains: %v", name, err)
+		}
+	}
+	for _, name := range transientWorkspaceDirs {
+		if _, err := os.Stat(filepath.Join(ws, name)); !os.IsNotExist(err) {
+			t.Errorf("transient directory %q remains: %v", name, err)
 		}
 	}
 	if _, err := os.Stat(keep); err != nil {
@@ -380,6 +393,18 @@ func TestCmdGenRejectsFlagsAfterTarget(t *testing.T) {
 	err := cmdGen(context.Background(), []string{target, "--config", filepath.Join(t.TempDir(), "missing.yaml")})
 	if err == nil || !strings.Contains(err.Error(), "unexpected arguments after <path>") {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestCmdGenValidatesSymbolAndBatchSelectionBeforeAnalysis(t *testing.T) {
+	if err := cmdGen(t.Context(), []string{"--symbol", "Session", t.TempDir()}); err == nil || !strings.Contains(err.Error(), "--symbol requires exactly one --dep") {
+		t.Fatalf("symbol error = %v", err)
+	}
+	if err := cmdGen(t.Context(), []string{"--batch-size", "-1", t.TempDir()}); err == nil || !strings.Contains(err.Error(), "--batch-size must be zero or greater") {
+		t.Fatalf("batch error = %v", err)
+	}
+	if err := cmdGen(t.Context(), []string{"--batch-sites", "-1", t.TempDir()}); err == nil || !strings.Contains(err.Error(), "--batch-sites must be zero or greater") {
+		t.Fatalf("batch sites error = %v", err)
 	}
 }
 

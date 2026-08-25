@@ -19,8 +19,9 @@ import (
 // the full symbol/site list for that dependency.
 func cmdSurface(ctx context.Context, args []string) error {
 	fs := newFlags("surface")
-	var deps, scopes, includes, excludes stringList
+	var deps, symbols, scopes, includes, excludes stringList
 	fs.Var(&deps, "dep", "dependency name to detail (repeatable); default: summarise all direct deps")
+	fs.Var(&symbols, "symbol", "exact dependency symbol to include (repeatable; requires one --dep)")
 	fs.Var(&scopes, "scope", "usage scope to include: production, test, example, or documentation (repeatable); default: all")
 	fs.Var(&includes, "include", "relative path prefix to include (repeatable)")
 	fs.Var(&excludes, "exclude", "relative path prefix to exclude (repeatable)")
@@ -29,6 +30,9 @@ func cmdSurface(ctx context.Context, args []string) error {
 	configPath := fs.String("config", "", "configuration file (default: <target>/hyrum.yaml when present)")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if len(symbols) > 0 && len(deps) != 1 {
+		return fmt.Errorf("--symbol requires exactly one --dep")
 	}
 	set := visitedFlags(fs)
 	if set["config"] && *configPath == "" {
@@ -62,7 +66,7 @@ func cmdSurface(ctx context.Context, args []string) error {
 	if len(deps) == 0 {
 		return surfaceSummaryWithOptions(ctx, t, *directOnly, *asJSON, opts)
 	}
-	return surfaceDetailWithOptions(ctx, t, deps, *asJSON, opts)
+	return surfaceDetailWithOptions(ctx, t, deps, symbols, *asJSON, opts)
 }
 
 func surfaceSummaryWithOptions(
@@ -149,6 +153,7 @@ func surfaceDetailWithOptions(
 	ctx context.Context,
 	t *hyrum.Target,
 	names []string,
+	symbols []string,
 	asJSON bool,
 	opts usage.IndexOptions,
 ) error {
@@ -167,6 +172,10 @@ func surfaceDetailWithOptions(
 		}
 		if err != nil {
 			return err
+		}
+		s, err = selectUsageSymbols(s, symbols)
+		if err != nil {
+			return fmt.Errorf("%s: %w", d.Name, err)
 		}
 		out = append(out, s)
 	}

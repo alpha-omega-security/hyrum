@@ -110,3 +110,10 @@ func captureStdout(t *testing.T, run func() error) (string, error) {
 	}
 	return string(body), runErr
 }
+
+func TestSurfaceSymbolRequiresOneDependency(t *testing.T) {
+	err := cmdSurface(t.Context(), []string{"--symbol", "Session", t.TempDir()})
+	if err == nil || !strings.Contains(err.Error(), "--symbol requires exactly one --dep") {
+		t.Fatalf("error = %v", err)
+	}
+}
