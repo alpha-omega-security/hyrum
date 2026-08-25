@@ -18,7 +18,7 @@ Your working directory is the workspace root. Every path below is relative to it
 
 - `target/` — the repository whose history you are mining (read-only, full clone)
 - `context.json` — `{purl, name, ecosystem, version, repo, latest, target}`
-- `git-log.txt`: target commits selected by dependency mentions in messages or changed manifest lines. Records contain the subject, body, touched manifest paths, and matching `+`/`-` lines, with `---` separators.
+- `git-log.txt`: target commits selected by dependency mentions in messages or manifest diff excerpts. Records contain the subject, body, touched manifest paths, and matching diff excerpts, with `---` separators. An unchanged package identity line may precede changed lockfile version lines.
 - `changelog.json` — parsed entries from the dependency's changelog (may be absent)
 - `vulns.json` — advisories affecting the dependency (may be absent)
 - `breaks.json` — write your output here per `schema.json`

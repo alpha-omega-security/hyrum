@@ -14,25 +14,27 @@ import (
 func gitInit(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	run := func(args ...string) {
-		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
-		cmd.Env = append(os.Environ(),
-			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
-			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
-		}
-	}
-	run("init", "-q")
+	runGit(t, dir, "init", "-q")
 	os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"dependencies":{"ws":"7.4.2"}}`), 0o644)
-	run("add", ".")
-	run("commit", "-q", "-m", "add ws dep")
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-q", "-m", "add ws dep")
 	os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"dependencies":{"ws":"8.0.0"}}`), 0o644)
-	run("commit", "-q", "-am", "bump\n\nunrelated body text\n\nsecond paragraph")
+	runGit(t, dir, "commit", "-q", "-am", "bump\n\nunrelated body text\n\nsecond paragraph")
 	os.WriteFile(filepath.Join(dir, "other.txt"), []byte("x"), 0o644)
-	run("add", ".")
-	run("commit", "-q", "-m", "fix WS handling\n\nbody with --- in it\nand more")
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-q", "-m", "fix WS handling\n\nbody with --- in it\nand more")
 	return dir
+}
+
+func runGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
+		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
 }
 
 func TestStreamLogParsesRecords(t *testing.T) {
@@ -99,16 +101,6 @@ func TestBuildHistoryIndexPartitions(t *testing.T) {
 
 func TestBuildHistoryIndexMatchesChangedManifestLinesOnly(t *testing.T) {
 	dir := t.TempDir()
-	run := func(args ...string) {
-		t.Helper()
-		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
-		cmd.Env = append(os.Environ(),
-			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
-			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
-		}
-	}
 	writePackage := func(ws, lodash string) {
 		t.Helper()
 		contents := "{\n  \"dependencies\": {\n    \"ws\": \"" + ws + "\",\n    \"lodash\": \"" + lodash + "\"\n  }\n}\n"
@@ -117,14 +109,14 @@ func TestBuildHistoryIndexMatchesChangedManifestLinesOnly(t *testing.T) {
 		}
 	}
 
-	run("init", "-q")
+	runGit(t, dir, "init", "-q")
 	writePackage("7.4.2", "4.17.20")
-	run("add", "package.json")
-	run("commit", "-q", "-m", "add dependencies")
+	runGit(t, dir, "add", "package.json")
+	runGit(t, dir, "commit", "-q", "-m", "add dependencies")
 	writePackage("7.4.2", "4.17.21")
-	run("commit", "-q", "-am", "update utility package")
+	runGit(t, dir, "commit", "-q", "-am", "update utility package")
 	writePackage("8.0.0", "4.17.21")
-	run("commit", "-q", "-am", "update ws package")
+	runGit(t, dir, "commit", "-q", "-am", "update ws package")
 
 	tgt := &Target{Path: dir, Report: &brief.Report{PackageManagers: []brief.Detection{{
 		ConfigFiles: []string{"package.json"},
@@ -165,6 +157,44 @@ func TestBuildHistoryIndexMatchesChangedManifestLinesOnly(t *testing.T) {
 	}
 }
 
+func TestBuildHistoryIndexMatchesVersionOnlyLockfileUpdate(t *testing.T) {
+	dir := gitInit(t)
+	writeLock := func(version string) {
+		t.Helper()
+		contents := "[[package]]\nname = \"serde\"\nversion = \"" + version + "\"\n"
+		if err := os.WriteFile(filepath.Join(dir, "Cargo.lock"), []byte(contents), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	writeLock("1.0.0")
+	runGit(t, dir, "add", "Cargo.lock")
+	runGit(t, dir, "commit", "-q", "-m", "add lockfile")
+	writeLock("1.0.1")
+	runGit(t, dir, "commit", "-q", "-am", "update dependency")
+
+	tgt := &Target{Path: dir, Report: &brief.Report{PackageManagers: []brief.Detection{{
+		Lockfile: "Cargo.lock",
+	}}}}
+	idx, err := BuildHistoryIndex(t.Context(), tgt, []Dep{{Name: "serde"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	matches := idx.For("serde")
+	if len(matches) != 2 {
+		t.Fatalf("serde matches = %d, want initial and version update commits: %+v", len(matches), matches)
+	}
+	if matches[0].Subject != "update dependency" {
+		t.Errorf("first match subject = %q", matches[0].Subject)
+	}
+	changes := strings.Join(matches[0].Changes, "\n")
+	for _, want := range []string{`name = "serde"`, `-version = "1.0.0"`, `+version = "1.0.1"`} {
+		if !strings.Contains(changes, want) {
+			t.Errorf("version update changes = %q, want %q", changes, want)
+		}
+	}
+}
+
 func TestTouchedManifestPathsUsesExactDiffHeaders(t *testing.T) {
 	patch := "diff --git a/packages/app/package.json b/packages/app/package.json\n"
 	paths := []string{"package.json", "packages/app/package.json"}
@@ -180,6 +210,19 @@ func TestChangedPatchLinesExcludesDiffHeadersAndContext(t *testing.T) {
 	want := []string{`-  "ws": "7.4.2"`, `+  "ws": "8.0.0"`}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("changedPatchLines = %q, want %q", got, want)
+	}
+}
+
+func TestChangedPatchLinesAssociatesManifestIdentityContext(t *testing.T) {
+	patch := "diff --git a/Cargo.lock b/Cargo.lock\n--- a/Cargo.lock\n+++ b/Cargo.lock\n@@ -2,2 +2,2 @@\n name = \"serde\"\n-version = \"1.0.0\"\n+version = \"1.0.1\"\n"
+	matches := matchingChanges(changedPatchLines(patch), "serde")
+	if len(matches) != 1 {
+		t.Fatalf("matching changes = %q, want one lockfile excerpt", matches)
+	}
+	for _, want := range []string{`name = "serde"`, `-version = "1.0.0"`, `+version = "1.0.1"`} {
+		if !strings.Contains(matches[0], want) {
+			t.Errorf("matching change = %q, want %q", matches[0], want)
+		}
 	}
 }
 

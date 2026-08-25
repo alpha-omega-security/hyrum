@@ -27,8 +27,8 @@ type Commit struct {
 	// Files is populated for the manifest-path scan so hyrum-history can see
 	// which lockfile changed without opening the commit.
 	Files []string `json:"files,omitempty"`
-	// Changes contains added and removed manifest lines that matched the
-	// dependency name. The diff marker is retained to show each direction.
+	// Changes contains manifest diff excerpts that matched the dependency.
+	// Lockfile excerpts may include an unchanged package identity line.
 	Changes []string `json:"changes,omitempty"`
 	patch   string
 }
@@ -53,7 +53,8 @@ type HistoryIndex struct {
 // literal substring. The second pass streams `git log --all -- <manifest
 // paths>` (paths taken from brief's package-manager detections) with patches
 // so version-bump commits are captured even when the message does not name
-// the dependency. Manifest matching considers added and removed lines only.
+// the dependency. Manifest matching considers changed lines and an immediately
+// preceding package identity line when a lockfile separates name and version.
 //
 // Both passes propagate context cancellation. Zero matches for a name is a
 // valid empty result.
@@ -92,9 +93,9 @@ func BuildHistoryIndex(ctx context.Context, t *Target, deps []Dep) (*HistoryInde
 }
 
 // For returns the commits relevant to dep: message matches merged with
-// manifest-path commits whose added or removed lines mention dep, deduplicated
-// by SHA in git's original ordering (message matches first, then any
-// manifest-only commits appended).
+// manifest-path commits whose diff excerpts mention dep, deduplicated by SHA
+// in git's original ordering (message matches first, then any manifest-only
+// commits appended).
 func (h *HistoryIndex) For(dep string) []Commit {
 	name := strings.ToLower(dep)
 	manifestMatches := make(map[string]Commit)
@@ -247,7 +248,7 @@ func streamLog(ctx context.Context, repo string, paths []string, detail logDetai
 	case logNames:
 		args = append(args, "--name-only")
 	case logPatch:
-		args = append(args, "--patch", "--unified=0")
+		args = append(args, "--patch", "--unified=1")
 	}
 	if len(paths) > 0 {
 		args = append(args, "--")
@@ -298,16 +299,43 @@ func touchedManifestPaths(patch string, paths []string) []string {
 }
 
 func changedPatchLines(patch string) []string {
+	lines := strings.Split(patch, "\n")
 	var changes []string
-	for _, line := range strings.Split(patch, "\n") {
-		if strings.HasPrefix(line, "+++ ") || strings.HasPrefix(line, "--- ") {
+	for i, line := range lines {
+		if isPatchChangeLine(line) {
+			changes = append(changes, line)
+		}
+		if !isManifestIdentityContext(line) {
 			continue
 		}
-		if strings.HasPrefix(line, "+") || strings.HasPrefix(line, "-") {
-			changes = append(changes, line)
+		excerpt := []string{line}
+		for j := i + 1; j < len(lines) && isPatchChangeLine(lines[j]); j++ {
+			excerpt = append(excerpt, lines[j])
+		}
+		if len(excerpt) > 1 {
+			changes = append(changes, strings.Join(excerpt, "\n"))
 		}
 	}
 	return changes
+}
+
+func isPatchChangeLine(line string) bool {
+	if strings.HasPrefix(line, "+++ ") || strings.HasPrefix(line, "--- ") {
+		return false
+	}
+	return strings.HasPrefix(line, "+") || strings.HasPrefix(line, "-")
+}
+
+func isManifestIdentityContext(line string) bool {
+	if !strings.HasPrefix(line, " ") {
+		return false
+	}
+	text := strings.TrimSpace(line[1:])
+	if strings.HasPrefix(text, "name = ") || strings.HasPrefix(text, `"name":`) {
+		return true
+	}
+	return strings.HasSuffix(text, ":") ||
+		(strings.HasSuffix(text, "{") && strings.Contains(text, ":"))
 }
 
 func splitOn(delim byte) bufio.SplitFunc {
