@@ -119,6 +119,35 @@ func TestSelectDependencyOutlineUsesPackageFallbackWithoutUsageMatches(t *testin
 	}
 }
 
+func TestSelectDependencyOutlineFollowsObservedEntryPointExports(t *testing.T) {
+	packed := &outline.Result{Files: []outline.File{
+		{
+			Path:     "aiosqlite/__init__.py",
+			Content:  "from .core import Connection, connect\nfrom .cursor import Cursor\n",
+			Language: "python",
+			Outlined: true,
+		},
+		{
+			Path: "aiosqlite/core.py", Content: "class Connection:\n    pass\ndef connect():\n    pass\n", Language: "python",
+			Symbols: []outline.Symbol{{Name: "Connection", Exported: true}, {Name: "connect", Exported: true}},
+		},
+		{
+			Path: "aiosqlite/cursor.py", Content: "class Cursor:\n    pass\n", Language: "python",
+			Symbols: []outline.Symbol{{Name: "Cursor", Exported: true}},
+		},
+	}}
+	surface := &usage.Surface{Dep: "aiosqlite", Symbols: []usage.Symbol{{Name: "aiosqlite", Kind: "module"}}}
+
+	selection, err := selectDependencyOutline(packed, surface, 8<<10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"aiosqlite/__init__.py", "aiosqlite/core.py", "aiosqlite/cursor.py"}
+	if got := decisionPaths(selection.Included); strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("included = %v, want %v", got, want)
+	}
+}
+
 func TestSelectDependencyOutlineMatchesExactSymbolName(t *testing.T) {
 	packed := &outline.Result{Files: []outline.File{
 		{Path: "client.py", Content: "class Client:\n    pass\n", Symbols: []outline.Symbol{{Name: "Client", Exported: true}}},

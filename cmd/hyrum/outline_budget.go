@@ -161,10 +161,10 @@ func requiredOutlineCandidates(
 	surface *usage.Surface,
 ) (map[string]outlineCandidate, map[string]string) {
 	candidates := map[string]outlineCandidate{}
-	directPaths := addDirectOutlineCandidates(index.files, outlineUsageIdentifiers(surface), candidates)
+	referencePaths := addDirectOutlineCandidates(index.files, outlineUsageIdentifiers(surface), candidates)
 	addAncestorOutlineEntries(index.entryByDir, candidates)
-	addObservedModuleCandidates(index.files, outlineModuleNames(surface), candidates)
-	return candidates, directPaths
+	addObservedModuleCandidates(index.files, outlineModuleNames(surface), candidates, referencePaths)
+	return candidates, referencePaths
 }
 
 func addDirectOutlineCandidates(
@@ -206,17 +206,27 @@ func addObservedModuleCandidates(
 	files []outline.File,
 	modules map[string]bool,
 	candidates map[string]outlineCandidate,
+	referencePaths map[string]string,
 ) {
+	seedReferences := len(referencePaths) == 0
 	for _, file := range files {
 		if !outlineFileUsable(file) {
 			continue
 		}
 		base := strings.ToLower(pathpkg.Base(file.Path))
 		if outlineEntryNames[base] && outlinePathMatchesNames(file.Path, modules) {
-			addRequiredOutlineCandidate(candidates, file.Path, "package entry point for observed module")
+			reason := "package entry point for observed module"
+			addRequiredOutlineCandidate(candidates, file.Path, reason)
+			if seedReferences {
+				referencePaths[file.Path] = reason
+			}
 		}
 		if file.Outlined && outlineStemMatchesNames(file.Path, modules) {
-			addRequiredOutlineCandidate(candidates, file.Path, "source entry point for observed module")
+			reason := "source entry point for observed module"
+			addRequiredOutlineCandidate(candidates, file.Path, reason)
+			if seedReferences {
+				referencePaths[file.Path] = reason
+			}
 		}
 	}
 }
