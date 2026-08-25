@@ -27,7 +27,10 @@ type Commit struct {
 	// Files is populated for the manifest-path scan so hyrum-history can see
 	// which lockfile changed without opening the commit.
 	Files []string `json:"files,omitempty"`
-	patch string
+	// Changes contains manifest diff excerpts that matched the dependency.
+	// Lockfile excerpts may include an unchanged package identity line.
+	Changes []string `json:"changes,omitempty"`
+	patch   string
 }
 
 // HistoryIndex holds the result of one full-history scan of the target,
@@ -48,9 +51,10 @@ type HistoryIndex struct {
 // The first pass streams `git log --all` with NUL/US separators and matches
 // each commit's subject+body against every name in deps as a case-insensitive
 // literal substring. The second pass streams `git log --all -- <manifest
-// paths>` (paths taken from brief's package-manager detections) with
-// --name-only so version-bump commits are captured even when the message
-// does not name the dependency.
+// paths>` (paths taken from brief's package-manager detections) with patches
+// so version-bump commits are captured even when the message does not name
+// the dependency. Manifest matching considers changed lines and an immediately
+// preceding package identity line when a lockfile separates name and version.
 //
 // Both passes propagate context cancellation. Zero matches for a name is a
 // valid empty result.
@@ -77,6 +81,8 @@ func BuildHistoryIndex(ctx context.Context, t *Target, deps []Dep) (*HistoryInde
 	if len(paths) > 0 {
 		err = streamLog(ctx, t.Path, paths, logPatch, func(c Commit) {
 			c.Files = touchedManifestPaths(c.patch, paths)
+			c.Changes = changedPatchLines(c.patch)
+			c.patch = ""
 			idx.manifest = append(idx.manifest, c)
 		})
 		if err != nil {
@@ -87,15 +93,27 @@ func BuildHistoryIndex(ctx context.Context, t *Target, deps []Dep) (*HistoryInde
 }
 
 // For returns the commits relevant to dep: message matches merged with
-// manifest-path commits whose patch mentions dep, deduplicated by SHA in
-// git's original ordering (message matches first, then any manifest-only
+// manifest-path commits whose diff excerpts mention dep, deduplicated by SHA
+// in git's original ordering (message matches first, then any manifest-only
 // commits appended).
 func (h *HistoryIndex) For(dep string) []Commit {
 	name := strings.ToLower(dep)
+	manifestMatches := make(map[string]Commit)
+	for _, c := range h.manifest {
+		c.Changes = matchingChanges(c.Changes, name)
+		if len(c.Changes) > 0 {
+			manifestMatches[c.SHA] = c
+		}
+	}
+
 	seen := map[string]bool{}
 	out := make([]Commit, 0, len(h.byName[name]))
 	for _, c := range h.byName[name] {
 		if !seen[c.SHA] {
+			if manifest, ok := manifestMatches[c.SHA]; ok {
+				c.Files = manifest.Files
+				c.Changes = manifest.Changes
+			}
 			seen[c.SHA] = true
 			out = append(out, c)
 		}
@@ -104,32 +122,27 @@ func (h *HistoryIndex) For(dep string) []Commit {
 		if seen[c.SHA] {
 			continue
 		}
-		// A manifest commit is relevant when the diff mentions the dep name.
-		// Checking here rather than during the scan keeps the scan O(commits)
-		// instead of O(commits × deps); the manifest-touching set is small.
-		if commitMentions(c, name) {
+		if match, ok := manifestMatches[c.SHA]; ok {
 			seen[c.SHA] = true
-			out = append(out, c)
+			out = append(out, match)
 		}
 	}
 	return out
 }
 
-func commitMentions(c Commit, name string) bool {
-	if strings.Contains(strings.ToLower(c.Subject+"\n"+c.Body+"\n"+c.patch), name) {
-		return true
-	}
-	for _, f := range c.Files {
-		if strings.Contains(strings.ToLower(f), name) {
-			return true
+func matchingChanges(changes []string, name string) []string {
+	var matches []string
+	for _, change := range changes {
+		if strings.Contains(strings.ToLower(change), name) {
+			matches = append(matches, change)
 		}
 	}
-	return false
+	return matches
 }
 
 // WriteGitLog writes the commits for dep from a pre-built index to path in
-// the same `SHA date subject / body / ---` text format the hyrum-history
-// skill reads.
+// the `SHA date subject / body / manifest paths / matching changes / ---`
+// text format the hyrum-history skill reads.
 func (h *HistoryIndex) WriteGitLog(dep, path string) error {
 	var b strings.Builder
 	for _, c := range h.For(dep) {
@@ -144,14 +157,18 @@ func (h *HistoryIndex) WriteGitLog(dep, path string) error {
 			b.WriteString(strings.Join(c.Files, "\n"))
 			b.WriteByte('\n')
 		}
+		if len(c.Changes) > 0 {
+			b.WriteString(strings.Join(c.Changes, "\n"))
+			b.WriteByte('\n')
+		}
 		b.WriteString("---\n")
 	}
 	return os.WriteFile(path, []byte(b.String()), 0o644)
 }
 
-// maxLogRecord bounds a single git-log record (SHA + date + subject + body
-// + optional file list). It exists so a repository with a multi-megabyte
-// commit body cannot exhaust memory via bufio.Scanner's growing buffer.
+// maxLogRecord bounds a single git-log record (SHA + date + subject + body +
+// optional detail). It exists so a repository with a multi-megabyte commit
+// body or patch cannot exhaust memory via bufio.Scanner's growing buffer.
 const maxLogRecord = 8 << 20
 
 // logFields is the number of US-separated fields in the streamLog format
@@ -231,7 +248,7 @@ func streamLog(ctx context.Context, repo string, paths []string, detail logDetai
 	case logNames:
 		args = append(args, "--name-only")
 	case logPatch:
-		args = append(args, "--patch")
+		args = append(args, "--patch", "--unified=1")
 	}
 	if len(paths) > 0 {
 		args = append(args, "--")
@@ -279,6 +296,46 @@ func touchedManifestPaths(patch string, paths []string) []string {
 		}
 	}
 	return touched
+}
+
+func changedPatchLines(patch string) []string {
+	lines := strings.Split(patch, "\n")
+	var changes []string
+	for i, line := range lines {
+		if isPatchChangeLine(line) {
+			changes = append(changes, line)
+		}
+		if !isManifestIdentityContext(line) {
+			continue
+		}
+		excerpt := []string{line}
+		for j := i + 1; j < len(lines) && isPatchChangeLine(lines[j]); j++ {
+			excerpt = append(excerpt, lines[j])
+		}
+		if len(excerpt) > 1 {
+			changes = append(changes, strings.Join(excerpt, "\n"))
+		}
+	}
+	return changes
+}
+
+func isPatchChangeLine(line string) bool {
+	if strings.HasPrefix(line, "+++ ") || strings.HasPrefix(line, "--- ") {
+		return false
+	}
+	return strings.HasPrefix(line, "+") || strings.HasPrefix(line, "-")
+}
+
+func isManifestIdentityContext(line string) bool {
+	if !strings.HasPrefix(line, " ") {
+		return false
+	}
+	text := strings.TrimSpace(line[1:])
+	if strings.HasPrefix(text, "name = ") || strings.HasPrefix(text, `"name":`) {
+		return true
+	}
+	return strings.HasSuffix(text, ":") ||
+		(strings.HasSuffix(text, "{") && strings.Contains(text, ":"))
 }
 
 func splitOn(delim byte) bufio.SplitFunc {
