@@ -1,11 +1,13 @@
 package main
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/alpha-omega-security/hyrum/internal/hyrum"
 	"github.com/git-pkgs/brief"
 	"github.com/git-pkgs/outline"
+	"github.com/git-pkgs/registries"
 )
 
 func TestOutRoot(t *testing.T) {
@@ -145,23 +147,71 @@ func TestTruncate(t *testing.T) {
 	}
 }
 
-func TestConstraintVersion(t *testing.T) {
-	cases := []struct{ in, eco, want string }{
-		{"^1.2.3", "npm", "1.2.3"},
-		{"~7.4.2", "npm", "7.4.2"},
-		{"8.17.1", "npm", "8.17.1"},
-		{"*", "npm", ""},
-		{"<3", "npm", ""},
-		{"", "npm", ""},
-		{"~> 4.0", "gem", "4.0"},
-		{"~=2.3", "pypi", "2.3"},
-		{">=2.3,!=2.3", "pypi", ""},
-		{"v10.28.0", "golang", "v10.28.0"},
+func TestResolveBaseline(t *testing.T) {
+	versions := []registries.Version{
+		{Number: "9.0.0"},
+		{Number: "8.10.1"},
+		{Number: "8.9.0"},
+		{Number: "8.10.0"},
+		{Number: "not-a-version"},
 	}
-	for _, c := range cases {
-		if got := constraintVersion(c.in, c.eco); got != c.want {
-			t.Errorf("(%q, %s): got %q want %q", c.in, c.eco, got, c.want)
+	baseline, err := resolveBaseline(">=8.10,<10", hyrum.EcoPyPI, versions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if baseline != "8.10.0" {
+		t.Fatalf("baseline = %q, want 8.10.0", baseline)
+	}
+
+	statusVersions := []registries.Version{
+		{Number: "8.10.0", Status: registries.StatusYanked},
+		{Number: "8.10.1", Status: registries.StatusRetracted},
+		{Number: "8.10.2", Status: registries.StatusDeprecated},
+		{Number: "8.11.0"},
+	}
+	baseline, err = resolveBaseline(">=8.10,<10", hyrum.EcoPyPI, statusVersions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if baseline != "8.10.2" {
+		t.Fatalf("status-filtered baseline = %q, want 8.10.2", baseline)
+	}
+
+	baseline, err = resolveBaseline("==8.10.0", hyrum.EcoPyPI, statusVersions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if baseline != "8.10.0" {
+		t.Fatalf("exact yanked baseline = %q, want 8.10.0", baseline)
+	}
+}
+
+func TestResolveBaselineOtherRangeShapes(t *testing.T) {
+	versions := []registries.Version{{Number: "1.0.0"}, {Number: "2.3"}, {Number: "2.3.1"}}
+	for _, test := range []struct {
+		constraint string
+		ecosystem  string
+		want       string
+	}{
+		{constraint: "*", ecosystem: hyrum.EcoNPM, want: "1.0.0"},
+		{constraint: "<3", ecosystem: hyrum.EcoPyPI, want: "1.0.0"},
+		{constraint: ">=2.3,!=2.3", ecosystem: hyrum.EcoPyPI, want: "2.3.1"},
+	} {
+		baseline, err := resolveBaseline(test.constraint, test.ecosystem, versions)
+		if err != nil {
+			t.Errorf("resolveBaseline(%q): %v", test.constraint, err)
+		} else if baseline != test.want {
+			t.Errorf("resolveBaseline(%q) = %q, want %q", test.constraint, baseline, test.want)
 		}
+	}
+	for _, constraint := range []string{"", ">="} {
+		baseline, err := resolveBaseline(constraint, hyrum.EcoPyPI, versions)
+		if err == nil || baseline != "" {
+			t.Errorf("resolveBaseline(%q) = (%q, %v), want error", constraint, baseline, err)
+		}
+	}
+	if baseline, err := resolveBaseline(">=8.10,<10", hyrum.EcoPyPI, versions); err == nil || baseline != "" || !strings.Contains(err.Error(), "no usable registry release") {
+		t.Fatalf("no-match result = (%q, %v)", baseline, err)
 	}
 }
 

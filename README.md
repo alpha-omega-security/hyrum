@@ -164,6 +164,14 @@ from default generation, but an explicit `--dep` includes it. `baseline`
 changes the version staged, verified, and recorded by Hyrum without modifying
 the target's manifest or lockfile.
 
+Hyrum resolves a manifest range or configured baseline against the package
+registry and selects its lowest usable release. `context.json` and the
+generated suite's `meta.json` retain the requested constraint beside that
+concrete baseline. Source outlines are written only when a repository tag
+matches the resolved release. An unresolved baseline or missing tag is
+recorded as `baseline_error` or `outline_error`; Hyrum does not label the
+repository's default branch as baseline source.
+
 `activations` lists exact quoted string literals that select a dependency
 without importing it directly. Driver names, plugin aliases, dynamic import
 names, and entry-point identifiers can be recorded this way. Each match appears
@@ -235,17 +243,19 @@ recovered steps for each batch. A staging run without `--run` writes each
 batch's `usage.json` under the workspace's `batches/` directory for inspection.
 
 `gen` stages a workspace with the target's static usage of the dependency
-(`usage.json`), a signature-only outline of the dependency's source
-(`dep-outline.md`), the target's git commits mentioning the dependency, its
-OSV advisories, and its parsed changelog. Without batching, three model steps
+(`usage.json`), a signature-only outline of the dependency's source at the
+resolved baseline tag when available (`dep-outline.md`), the target's git
+commits mentioning the dependency, its OSV advisories, and its parsed
+changelog. Without batching, three model steps
 run in sequence: `hyrum-usage` follows the static entry points through
 instances and options bags to record the actual call surface;
 `hyrum-history` filters the history inputs down to a list of past compatibility
 fixes with evidence for each; `hyrum-generate` writes tests that mirror the
 observed calls and cite the source line or commit each was derived from. With
-`--verify`, supported
-tests are run in a scratch directory against the target's baseline version and
-the dependency's latest release. A fourth `hyrum-validate` step then classifies
+`--verify`, supported tests are run in a scratch directory against the
+concrete registry release
+selected for the target's baseline constraint and the dependency's latest
+release. A fourth `hyrum-validate` step then classifies
 latest-version failures as real behaviour changes, over-specific assertions,
 or environment problems, and flags tests whose only assertion is a shape
 check. Per-version results and per-test verdicts land in `meta.json`. See
