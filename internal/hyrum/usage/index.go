@@ -463,11 +463,16 @@ func recordImport(
 	}
 }
 
-// collector accumulates symbols across files, keyed by symbol name so
-// multiple sites merge. Insertion order is retained for stable output.
+// collector accumulates symbols across files. Activation sites remain
+// distinct from imported symbols with the same name.
 type collector struct {
-	syms  map[string]*Symbol
-	order []string
+	syms  map[symbolKey]*Symbol
+	order []symbolKey
+}
+
+type symbolKey struct {
+	name       string
+	activation bool
 }
 
 const (
@@ -477,17 +482,19 @@ const (
 )
 
 func newCollector() *collector {
-	return &collector{syms: map[string]*Symbol{}}
+	return &collector{syms: map[symbolKey]*Symbol{}}
 }
 
 func (c *collector) hasSite(name, file string, line int) bool {
-	symbol := c.syms[name]
-	if symbol == nil {
-		return false
-	}
-	for _, site := range symbol.Sites {
-		if site.File == file && site.Line == line {
-			return true
+	for _, key := range []symbolKey{{name: name}, {name: name, activation: true}} {
+		symbol := c.syms[key]
+		if symbol == nil {
+			continue
+		}
+		for _, site := range symbol.Sites {
+			if site.File == file && site.Line == line {
+				return true
+			}
 		}
 	}
 	return false
@@ -497,19 +504,20 @@ func (c *collector) add(name, kind, file string, line int, ctx string, scope Sco
 	if name == "" {
 		return
 	}
-	s, ok := c.syms[name]
+	key := symbolKey{name: name, activation: kind == kindActivation}
+	s, ok := c.syms[key]
 	if !ok {
 		s = &Symbol{Name: name, Kind: kind}
-		c.syms[name] = s
-		c.order = append(c.order, name)
+		c.syms[key] = s
+		c.order = append(c.order, key)
 	}
 	s.Sites = append(s.Sites, Site{File: file, Line: line, Context: ctx, Scope: scope})
 }
 
 func (c *collector) surface() *Surface {
 	surf := &Surface{Symbols: make([]Symbol, 0, len(c.order))}
-	for _, name := range c.order {
-		surf.Symbols = append(surf.Symbols, *c.syms[name])
+	for _, key := range c.order {
+		surf.Symbols = append(surf.Symbols, *c.syms[key])
 	}
 	return surf
 }
