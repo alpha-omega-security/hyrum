@@ -82,11 +82,11 @@ whole-ecosystem scale by building and running every dependent; a small
 per-consumer suite aims to retain the relevant compatibility signal without
 building the dependent in full.
 
-**Pinned-dependency diagnosis** ([docs/logjam.md](docs/logjam.md)). For npm,
-when a dependency is held back by an upper-bound pin and the reason has been
-lost, `hyrum check --dep X@<blocked-version>` runs the generated suite against
-the blocked version and prints which assertions fail. Version selection for
-PyPI and Go is still incomplete, as described below.
+**Pinned-dependency diagnosis** ([docs/logjam.md](docs/logjam.md)). For npm and
+PyPI, when a dependency is held back by an upper-bound pin and the reason has
+been lost, `hyrum check --dep X@<blocked-version>` runs the generated suite
+against the blocked version and prints which assertions fail. Go version
+selection is still incomplete, as described below.
 
 **CVE reachability and vendoring**
 ([docs/reachability.md](docs/reachability.md)). `hyrum surface --json` gives
@@ -113,9 +113,10 @@ go install github.com/alpha-omega-security/hyrum/cmd/hyrum@latest
 ```
 
 Requires [Go 1.26+](https://go.dev/dl/) and `git` on PATH. `hyrum surface`
-needs nothing else. `hyrum check` and `gen --verify` also use the target's
-package manager and test runtime. The implemented runners require Node for
-npm, Python with pytest for PyPI, or Go for Go modules.
+needs nothing else. `hyrum check` and `gen --verify` create a scratch package
+environment and use the host test runtime. The implemented runners require
+Node for npm, Python with `venv` support for PyPI, or Go for Go modules. The
+PyPI runner installs pytest inside its virtual environment.
 
 ## Backend setup
 
@@ -235,9 +236,8 @@ hyrum corpus --upstream <purl> \
 ```
 
 Static indexing and generation cover all ecosystems listed below. Test
-execution is narrower: npm works end to end, PyPI and Go have known scratch
-setup or version-selection gaps, and the other four ecosystems have no runner
-yet.
+execution is narrower: npm and PyPI work end to end, Go has version-selection
+and result-count gaps, and the other four ecosystems have no runner yet.
 
 Static sites are classified as `production`, `test`, `example`, or
 `documentation` from their relative paths. `surface` includes every scope and
@@ -293,7 +293,7 @@ instances or callbacks.
 | purl type | languages | static extraction | test execution |
 |---|---|---|---|
 | npm | JavaScript, TypeScript | `require()`, ESM `import`, chained `.member` | `node --test` |
-| pypi | Python | `import`, `from ... import`, attribute access | pytest; scratch setup and version pinning incomplete |
+| pypi | Python | `import`, `from ... import`, attribute access | isolated virtualenv, pip, pytest |
 | golang | Go | `import "path"`, selectors, qualified types | `go test`; version pinning and result counts incomplete |
 | gem | Ruby | `require`, `Const::` and `Const.method` refs | not implemented |
 | cargo | Rust | `use crate::`, `crate::path` refs | not implemented |
@@ -316,8 +316,8 @@ Generated tests are model output. The generation skill instructs the backend
 to import only the dependency and standard library and to avoid network and
 external filesystem access, but the CLI does not enforce those rules. Review
 tests before running them. `gen --verify` and `check` run tests and package
-install hooks as your user. `check --dep X@<version>` may also change the
-target's manifest or lockfile.
+install hooks as your user. Both commands install into scratch package
+environments and leave the target's manifest and lockfile unchanged.
 
 ## License
 

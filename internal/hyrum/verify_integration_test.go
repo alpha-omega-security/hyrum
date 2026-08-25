@@ -64,3 +64,47 @@ func TestVerifyMatrixNPM(t *testing.T) {
 		t.Error("latest with failures should retain runner output for validate")
 	}
 }
+
+// TestVerifyMatrixPyPI exercises virtualenv creation, dependency replacement,
+// and pytest with two published versions. It is opt-in because it downloads
+// packages from PyPI.
+func TestVerifyMatrixPyPI(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	if os.Getenv("HYRUM_TEST_PYPI") == "" {
+		t.Skip("set HYRUM_TEST_PYPI=1 to run the PyPI integration test")
+	}
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not on PATH")
+	}
+
+	scratch := t.TempDir()
+	files := []GeneratedFile{{
+		Path: "test_idna.py",
+		Content: `import idna
+
+def test_idna_encode():
+    assert idna.encode("example.com") == b"example.com"
+`,
+	}}
+	versions := []string{"3.6", "3.7"}
+	results := VerifyMatrix(
+		t.Context(),
+		NewPythonVenvManager(scratch),
+		PythonVenvTestCommand(scratch),
+		scratch,
+		"idna",
+		files,
+		versions,
+	)
+
+	if len(results) != len(versions) {
+		t.Fatalf("results = %d, want %d: %+v", len(results), len(versions), results)
+	}
+	for i, result := range results {
+		if result.Version != versions[i] || result.Error != "" || result.Fail != 0 || result.Pass == 0 {
+			t.Errorf("version %s: %+v", versions[i], result)
+		}
+	}
+}

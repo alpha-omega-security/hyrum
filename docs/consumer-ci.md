@@ -49,12 +49,13 @@ jobs:
       - run: hyrum check --dep ws@${{ steps.bump.outputs.version }}
 ```
 
-`check` installs the candidate version via the project's own package manager
-and runs `tests/hyrum/ws/`, exiting non-zero with the assertion diff when a
-pinned behaviour has changed:
+`check` installs the candidate version in a scratch package environment and
+runs `tests/hyrum/ws/`, exiting non-zero with the assertion diff when a pinned
+behaviour has changed. The project's manifest, lockfile, and installed
+dependencies remain unchanged:
 
 ```
-→ npm add ws@8.21.3
+→ npm add ws@8.21.3 in scratch
 ws@8.21.3: FAIL
   ✖ delivers text message payloads as strings (1.2ms)
     AssertionError: Expected values to be strictly equal:
