@@ -16,8 +16,11 @@ hyrum corpus --upstream ws --out ./corpus --backend codex --run \
 ```
 
 Each `--dependent` is cloned, its usage of `ws` is extracted, and a test file
-is written under `./corpus/ws/from_<dependent>/`. The `@ref` suffix pins a
-dependent that has moved or been archived. Dependents can also be listed in a
+is written under `./corpus/ws/from_<dependent>/`. The dependent component uses
+one root manifest's package name. Nested targets add a suffix derived from the
+Git-relative path; targets without one package name use the repository name and
+relative path. The `@ref` suffix pins a dependent
+that has moved or been archived. Dependents can also be listed in a
 `downstream.toml` written by
 [downstream discover](https://github.com/git-pkgs/downstream), which queries
 [ecosyste.ms](https://ecosyste.ms) for the most-used packages depending on

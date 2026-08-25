@@ -233,9 +233,9 @@ func TestResolveGenOptionsPrecedence(t *testing.T) {
 	configDir := t.TempDir()
 	configPath := filepath.Join(configDir, "hyrum.yaml")
 	target := t.TempDir()
-	backend, configOut, configWork := "codex", "configured/out", "configured/work"
+	backend, configOut, configWork, configTargetName := "codex", "configured/out", "configured/work", "configured-target"
 	configOutlineBytes := 131072
-	cfg := hyrumconfig.File{Backend: &backend, Out: &configOut, Work: &configWork, OutlineBytes: &configOutlineBytes}
+	cfg := hyrumconfig.File{Backend: &backend, Out: &configOut, Work: &configWork, TargetName: &configTargetName, OutlineBytes: &configOutlineBytes}
 
 	t.Run("discovered config cannot set work", func(t *testing.T) {
 		got, err := resolveGenOptions(target, configPath, false, cfg, defaultGenOptions(), nil)
@@ -254,6 +254,9 @@ func TestResolveGenOptionsPrecedence(t *testing.T) {
 		if got.outlineBytes != configOutlineBytes {
 			t.Errorf("outline bytes = %d", got.outlineBytes)
 		}
+		if got.targetName != configTargetName {
+			t.Errorf("target name = %q", got.targetName)
+		}
 	})
 
 	t.Run("explicit config can set work", func(t *testing.T) {
@@ -271,16 +274,25 @@ func TestResolveGenOptionsPrecedence(t *testing.T) {
 		cli.backend = "claude" // Deliberately equal to the built-in default.
 		cli.out = "cli/out"
 		cli.work = "cli/work"
+		cli.targetName = "cli-target"
 		cli.outlineBytes = 65536
-		set := map[string]bool{"backend": true, "out": true, "work": true, "outline-bytes": true}
+		set := map[string]bool{"backend": true, "out": true, "work": true, "target-name": true, "outline-bytes": true}
 		got, err := resolveGenOptions(target, configPath, false, cfg, cli, set)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got.backend != "claude" || got.out != filepath.Join(target, "cli/out") || got.work != "cli/work" || got.outlineBytes != 65536 {
+		if got.backend != "claude" || got.out != filepath.Join(target, "cli/out") || got.work != "cli/work" || got.targetName != "cli-target" || got.outlineBytes != 65536 {
 			t.Fatalf("resolved = %+v", got)
 		}
 	})
+}
+
+func TestResolveGenOptionsRejectsUnsafeTargetName(t *testing.T) {
+	targetName := "scope/package"
+	_, err := resolveGenOptions(t.TempDir(), "", false, hyrumconfig.File{TargetName: &targetName}, defaultGenOptions(), nil)
+	if err == nil || !strings.Contains(err.Error(), "must be one path component") {
+		t.Fatalf("error = %v, want target-name component error", err)
+	}
 }
 
 func TestResolveGenOptionsExpandsConfiguredOutFromTarget(t *testing.T) {
@@ -415,6 +427,9 @@ func TestCmdGenValidatesSymbolAndBatchSelectionBeforeAnalysis(t *testing.T) {
 	}
 	if err := cmdGen(t.Context(), []string{"--batch-size", "-1", t.TempDir()}); err == nil || !strings.Contains(err.Error(), "--batch-size must be zero or greater") {
 		t.Fatalf("batch error = %v", err)
+	}
+	if err := cmdGen(t.Context(), []string{"--target-name", "scope/package", t.TempDir()}); err == nil || !strings.Contains(err.Error(), "must be one path component") {
+		t.Fatalf("target name error = %v", err)
 	}
 	if err := cmdGen(t.Context(), []string{"--batch-sites", "-1", t.TempDir()}); err == nil || !strings.Contains(err.Error(), "--batch-sites must be zero or greater") {
 		t.Fatalf("batch sites error = %v", err)
