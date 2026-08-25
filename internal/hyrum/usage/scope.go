@@ -83,7 +83,7 @@ func hasPathPart(parts []string, names ...string) bool {
 
 func isTestFilename(name string) bool {
 	stem := strings.TrimSuffix(name, filepath.Ext(name))
-	return stem == "test" || stem == "tests" ||
+	return name == "conftest.py" || stem == "test" || stem == "tests" ||
 		strings.HasPrefix(stem, "test_") || strings.HasPrefix(stem, "spec_") ||
 		strings.HasSuffix(stem, "_test") || strings.HasSuffix(stem, "_spec") ||
 		strings.Contains(name, ".test.") || strings.Contains(name, ".spec.")

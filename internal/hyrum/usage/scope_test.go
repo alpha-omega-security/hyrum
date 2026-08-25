@@ -12,6 +12,7 @@ func TestScopeForPath(t *testing.T) {
 		"pkg/client_spec.exs":           ScopeTest,
 		"pkg/tests.py":                  ScopeTest,
 		"pkg/client.spec.ts":            ScopeTest,
+		"conftest.py":                   ScopeTest,
 		"docs/reference/app.py":         ScopeDocumentation,
 		"examples/basic/app.py":         ScopeExample,
 		"docs/examples/test_example.py": ScopeTest,
@@ -29,6 +30,7 @@ func TestIndexRecordsAndFiltersScopes(t *testing.T) {
 	root := writeTree(t, map[string]string{
 		"src/app.py":        "import flask\n",
 		"tests/test_app.py": "import flask\n",
+		"conftest.py":       "import flask\n",
 		"examples/app.py":   "import flask\n",
 		"docs/snippet.py":   "import flask\n",
 	})
@@ -40,6 +42,7 @@ func TestIndexRecordsAndFiltersScopes(t *testing.T) {
 	wantScopes := map[string]Scope{
 		"src/app.py":        ScopeProduction,
 		"tests/test_app.py": ScopeTest,
+		"conftest.py":       ScopeTest,
 		"examples/app.py":   ScopeExample,
 		"docs/snippet.py":   ScopeDocumentation,
 	}
