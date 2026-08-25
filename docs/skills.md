@@ -18,12 +18,29 @@ Before any model step runs, `stageContext` and `GatherHistory` write:
 | `target/` | symlink to the target repository | usage, generate |
 | `dep/` | full clone of the dependency's source repo (best-effort) | history |
 | `usage.json` | scoped imports, refs, and configured activation strings over `target/` | usage, generate |
-| `dep-outline.md` | `outline.Pack` of the source tag matching the resolved baseline; absent when no tag matches | usage, generate |
-| `context.json` | purl, name, ecosystem, requested constraint, concrete baseline, repo URL, latest version, outline ref or error, exported-symbol count | all |
+| `dep-outline.md` | byte-bounded selection from `outline.Pack` of the source tag matching the resolved baseline; absent when no tag matches | usage, generate |
+| `outline-selection.json` | included and omitted outline paths with selection reasons and byte counts | usage, generate, inspection |
+| `context.json` | purl, name, ecosystem, requested constraint, concrete baseline, repo URL, latest version, outline ref or error, outline counts, exported-symbol count | all |
 | `git-log.txt` | target commits selected by dependency mentions in messages or manifest diff excerpts | history |
 | `changelog.json` | `changelog.Between(baseline, latest)` from `dep/` (absent if none found) | history, validate |
 | `vulns.json` | osv.dev advisories for the dep's purl | history |
 | `batches/batch-NNN/usage.json` | one deterministic usage subset when a batch limit is set | inspection |
+
+Dependency outlines default to 262144 rendered bytes. `gen --outline-bytes N`,
+`corpus --outline-bytes N`, or `outline_bytes` in `hyrum.yaml` changes the
+limit. Selection starts with files declaring names from `usage.json` and
+package entry points on their source paths. Files declaring exported names
+referenced by that source use the remaining budget, followed by root package
+metadata and README files. Files stay complete. If a used declaration or its
+entry point cannot fit, staging returns an error before any model step runs.
+
+`outline-selection.json` records the reason for every included path and marks
+omissions caused by the byte limit, test paths, source filtering, or lack of a
+link to observed usage. `context.json` and generated `meta.json` record
+`outline_budget_bytes`, `outline_bytes`, `outline_files`, and
+`outline_omitted_files`. An absent declaration in `dep-outline.md` is therefore
+unknown unless the selection manifest confirms that its source file was
+included.
 
 ## Symbol selection and batches
 
@@ -51,8 +68,8 @@ recovered model steps.
 
 ## hyrum-usage
 
-Reads `usage.json`, `target/`, `dep-outline.md`, `context.json`. Writes
-`surface.json`.
+Reads `usage.json`, `target/`, `dep-outline.md`, `outline-selection.json`, and
+`context.json`. Writes `surface.json`.
 
 `context.json` records the manifest request in `constraint` and the lowest
 usable registry release in both `baseline` and the compatibility field
@@ -112,7 +129,8 @@ Mid-tier model. An empty `breaks` array is a valid result.
 ## hyrum-generate
 
 Reads `surface.json` (or `usage.json`), `breaks.json`, `dep-outline.md`,
-`target/`, `dep/`, `context.json`. Writes `tests.json`.
+`outline-selection.json`, `target/`, `dep/`, and `context.json`. Writes
+`tests.json`.
 
 The dependency clone is restored to its default branch after changelog and
 outline collection. Generation therefore uses `dep-outline.md` for baseline

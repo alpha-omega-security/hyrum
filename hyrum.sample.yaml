@@ -26,6 +26,11 @@
 # it. Relative paths use the directory containing that explicit config file.
 # work: ~/.cache/hyrum
 
+# Maximum rendered size of each dependency source outline. Hyrum selects whole
+# files related to observed usage and fails before a model run if required
+# source evidence cannot fit.
+# outline_bytes: 262144
+
 # Per-dependency overrides. Keys are package names or purls.
 # deps:
 #   ws:

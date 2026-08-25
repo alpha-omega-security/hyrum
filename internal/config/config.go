@@ -19,16 +19,18 @@ const (
 	Filename      = "hyrum.yaml"
 	yamlStringTag = "!!str"
 	yamlBoolTag   = "!!bool"
+	yamlIntTag    = "!!int"
 )
 
 // File is the typed representation of hyrum.yaml. Pointer scalar fields
 // preserve the distinction between an omitted setting and an explicit value.
 type File struct {
-	Backend *string               `yaml:"backend,omitempty"`
-	Models  map[string]string     `yaml:"models,omitempty"`
-	Out     *string               `yaml:"out,omitempty"`
-	Work    *string               `yaml:"work,omitempty"`
-	Deps    map[string]Dependency `yaml:"deps,omitempty"`
+	Backend      *string               `yaml:"backend,omitempty"`
+	Models       map[string]string     `yaml:"models,omitempty"`
+	Out          *string               `yaml:"out,omitempty"`
+	Work         *string               `yaml:"work,omitempty"`
+	OutlineBytes *int                  `yaml:"outline_bytes,omitempty"`
+	Deps         map[string]Dependency `yaml:"deps,omitempty"`
 }
 
 // Dependency contains settings for one dependency, keyed by its manifest
@@ -134,6 +136,9 @@ func (cfg File) validate() error {
 			return fmt.Errorf("%s must not be empty", name)
 		}
 	}
+	if cfg.OutlineBytes != nil && *cfg.OutlineBytes <= 0 {
+		return fmt.Errorf("outline_bytes must be greater than zero")
+	}
 	for skill, tier := range cfg.Models {
 		if !modelSkills[skill] {
 			return fmt.Errorf("models.%s is unsupported", skill)
@@ -189,6 +194,10 @@ func validateNodeTypes(root *yaml.Node) error {
 		switch key.Value {
 		case "backend", "out", "work":
 			if err := requireTag(key.Value, value, yamlStringTag); err != nil {
+				return err
+			}
+		case "outline_bytes":
+			if err := requireTag(key.Value, value, yamlIntTag); err != nil {
 				return err
 			}
 		case "models":
@@ -280,6 +289,8 @@ func requireTag(path string, node *yaml.Node, tag string) error {
 			return fmt.Errorf("%s must be a string (got %s at line %d)", path, node.Tag, node.Line)
 		case tag == yamlBoolTag:
 			return fmt.Errorf("%s must be true or false (got %s at line %d)", path, node.Tag, node.Line)
+		case tag == yamlIntTag:
+			return fmt.Errorf("%s must be an integer (got %s at line %d)", path, node.Tag, node.Line)
 		default:
 			return fmt.Errorf("%s has the wrong type %s (line %d)", path, node.Tag, node.Line)
 		}

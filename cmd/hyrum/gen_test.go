@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,6 +19,12 @@ import (
 	"github.com/alpha-omega-security/hyrum/internal/hyrum/usage"
 	"github.com/git-pkgs/brief"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
 
 type runnerCall struct {
 	name     string
@@ -226,7 +234,8 @@ func TestResolveGenOptionsPrecedence(t *testing.T) {
 	configPath := filepath.Join(configDir, "hyrum.yaml")
 	target := t.TempDir()
 	backend, configOut, configWork := "codex", "configured/out", "configured/work"
-	cfg := hyrumconfig.File{Backend: &backend, Out: &configOut, Work: &configWork}
+	configOutlineBytes := 131072
+	cfg := hyrumconfig.File{Backend: &backend, Out: &configOut, Work: &configWork, OutlineBytes: &configOutlineBytes}
 
 	t.Run("discovered config cannot set work", func(t *testing.T) {
 		got, err := resolveGenOptions(target, configPath, false, cfg, defaultGenOptions(), nil)
@@ -241,6 +250,9 @@ func TestResolveGenOptionsPrecedence(t *testing.T) {
 		}
 		if got.work != defaultGenOptions().work {
 			t.Errorf("work = %q", got.work)
+		}
+		if got.outlineBytes != configOutlineBytes {
+			t.Errorf("outline bytes = %d", got.outlineBytes)
 		}
 	})
 
@@ -259,12 +271,13 @@ func TestResolveGenOptionsPrecedence(t *testing.T) {
 		cli.backend = "claude" // Deliberately equal to the built-in default.
 		cli.out = "cli/out"
 		cli.work = "cli/work"
-		set := map[string]bool{"backend": true, "out": true, "work": true}
+		cli.outlineBytes = 65536
+		set := map[string]bool{"backend": true, "out": true, "work": true, "outline-bytes": true}
 		got, err := resolveGenOptions(target, configPath, false, cfg, cli, set)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got.backend != "claude" || got.out != filepath.Join(target, "cli/out") || got.work != "cli/work" {
+		if got.backend != "claude" || got.out != filepath.Join(target, "cli/out") || got.work != "cli/work" || got.outlineBytes != 65536 {
 			t.Fatalf("resolved = %+v", got)
 		}
 	})
@@ -405,6 +418,102 @@ func TestCmdGenValidatesSymbolAndBatchSelectionBeforeAnalysis(t *testing.T) {
 	}
 	if err := cmdGen(t.Context(), []string{"--batch-sites", "-1", t.TempDir()}); err == nil || !strings.Contains(err.Error(), "--batch-sites must be zero or greater") {
 		t.Fatalf("batch sites error = %v", err)
+	}
+	if err := cmdGen(t.Context(), []string{"--outline-bytes", "0", t.TempDir()}); err == nil || !strings.Contains(err.Error(), "--outline-bytes must be greater than zero") {
+		t.Fatalf("outline bytes error = %v", err)
+	}
+}
+
+func TestCmdGenIncludesDeclarationsReexportedByObservedModule(t *testing.T) {
+	dependencyDir := t.TempDir()
+	writeFixtureFile(t, dependencyDir, "fixture/__init__.py", "from .core import Client\n")
+	writeFixtureFile(t, dependencyDir, "fixture/core.py", "class Client:\n    pass\n")
+	writeFixtureFile(t, dependencyDir, "pyproject.toml", "[project]\nname = \"fixture\"\nversion = \"1.0.0\"\n")
+	commitFixtureRepo(t, dependencyDir)
+	runFixtureGit(t, dependencyDir, "tag", "v1.0.0")
+
+	targetDir := t.TempDir()
+	writeFixtureFile(t, targetDir, "requirements.txt", "fixture==1.0.0\n")
+	writeFixtureFile(t, targetDir, "app.py", "import fixture\n")
+	commitFixtureRepo(t, targetDir)
+
+	cloneURL := "https://github.com/example/hyrum-outline-fixture"
+	t.Setenv("GIT_CONFIG_COUNT", "2")
+	t.Setenv("GIT_CONFIG_KEY_0", "url.file://"+dependencyDir+".insteadOf")
+	t.Setenv("GIT_CONFIG_VALUE_0", cloneURL)
+	t.Setenv("GIT_CONFIG_KEY_1", "protocol.file.allow")
+	t.Setenv("GIT_CONFIG_VALUE_1", "always")
+	t.Setenv("GIT_ALLOW_PROTOCOL", "https:file")
+
+	registryJSON := `{"info":{"name":"fixture","version":"1.0.0","project_urls":{"Source":"` + cloneURL + `"}},"releases":{"1.0.0":[{"yanked":false}]}}`
+	originalTransport := http.DefaultTransport
+	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		body := registryJSON
+		if req.URL.Host != "pypi.org" {
+			body = `{"vulns":[]}`
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(body)),
+			Request:    req,
+		}, nil
+	})
+	t.Cleanup(func() { http.DefaultTransport = originalTransport })
+
+	workDir := t.TempDir()
+	err := cmdGen(t.Context(), []string{
+		"--dep", "fixture",
+		"--outline-bytes", "8192",
+		"--work", workDir,
+		"--out", t.TempDir(),
+		targetDir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	selectionPath := filepath.Join(workDir, filepath.Base(targetDir), hyrum.EcoPyPI, "fixture", outlineSelectionFile)
+	var selection outlineSelection
+	contents, err := os.ReadFile(selectionPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(contents, &selection); err != nil {
+		t.Fatal(err)
+	}
+	if reason := decisionReason(selection.Included, "fixture/core.py"); reason != "declares referenced symbol Client" {
+		t.Fatalf("fixture/core.py reason = %q; selection = %+v", reason, selection.Included)
+	}
+}
+
+func writeFixtureFile(t *testing.T, root, name, contents string) {
+	t.Helper()
+	path := filepath.Join(root, name)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func commitFixtureRepo(t *testing.T, dir string) {
+	t.Helper()
+	runFixtureGit(t, dir, "init", "-q", "-b", "main")
+	runFixtureGit(t, dir, "add", ".")
+	runFixtureGit(t, dir, "commit", "-q", "-m", "fixture")
+}
+
+func runFixtureGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	gitArgs := append([]string{"-C", dir, "-c", "commit.gpgsign=false"}, args...)
+	cmd := exec.Command("git", gitArgs...)
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=test@example.com",
+		"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=test@example.com",
+	)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v: %s", args, err, output)
 	}
 }
 
@@ -692,8 +801,12 @@ func TestConfiguredBaselineReachesMetadata(t *testing.T) {
 
 func TestGenerationMetaPreservesBaselineEvidenceGaps(t *testing.T) {
 	staged := stagedDependency{
-		Baseline:   "8.10.0",
-		OutlineRef: "v8.10.0",
+		Baseline:            "8.10.0",
+		OutlineRef:          "v8.10.0",
+		OutlineBudgetBytes:  262144,
+		OutlineBytes:        71234,
+		OutlineFiles:        4,
+		OutlineOmittedFiles: 500,
 	}
 	meta := generationMeta(
 		"target",
@@ -708,6 +821,9 @@ func TestGenerationMetaPreservesBaselineEvidenceGaps(t *testing.T) {
 	}
 	if meta["outline_ref"] != staged.OutlineRef {
 		t.Fatalf("evidence metadata = %+v", meta)
+	}
+	if meta["outline_budget_bytes"] != staged.OutlineBudgetBytes || meta["outline_bytes"] != staged.OutlineBytes || meta["outline_files"] != staged.OutlineFiles || meta["outline_omitted_files"] != staged.OutlineOmittedFiles {
+		t.Fatalf("outline metadata = %+v", meta)
 	}
 	unresolved := stagedDependency{BaselineError: "registry versions unavailable", OutlineError: "source tag unavailable"}
 	meta = generationMeta("target", hyrum.Dep{}, unresolved, &hyrum.RunResult{}, hyrum.GenerateResult{}, 0)
