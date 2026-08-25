@@ -146,18 +146,6 @@ func TestSplitDependentSpec(t *testing.T) {
 	}
 }
 
-func TestVersionOr(t *testing.T) {
-	if versionOr("1.0", "2.0") != "1.0" {
-		t.Error("prefer explicit")
-	}
-	if versionOr("", "2.0") != "2.0" {
-		t.Error("fallback")
-	}
-	if versionOr("", "") != "installed" {
-		t.Error("default")
-	}
-}
-
 func TestIndent(t *testing.T) {
 	if got := indent("a\nb\n", "  "); got != "  a\n  b" {
 		t.Errorf("got %q", got)

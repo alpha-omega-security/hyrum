@@ -740,22 +740,18 @@ func (p *pipeline) runVerify(ctx context.Context, ws string, d hyrum.Dep, baseli
 	if baseline == "" {
 		return []hyrum.VerifyResult{{Error: "baseline version is unresolved"}}
 	}
-	tc, ok := testRunners[d.Ecosystem]
-	if !ok {
-		return []hyrum.VerifyResult{{Error: "no test runner for ecosystem " + d.Ecosystem}}
-	}
 	scratch := filepath.Join(ws, "verify")
 	_ = os.RemoveAll(scratch)
 	if err := os.MkdirAll(scratch, 0o755); err != nil {
 		return []hyrum.VerifyResult{{Error: err.Error()}}
 	}
-	mgr, err := detectManagerFor(scratch, d.Ecosystem)
+	mgr, testCommand, err := verificationRuntime(scratch, d.Ecosystem)
 	if err != nil {
-		return []hyrum.VerifyResult{{Error: fmt.Sprintf("manager for %s: %v", d.Ecosystem, err)}}
+		return []hyrum.VerifyResult{{Error: fmt.Sprintf("verification runtime for %s: %v", d.Ecosystem, err)}}
 	}
 	versions := []string{baseline, latest}
 	fmt.Fprintf(os.Stderr, "  [verify] %s at %v\n", d.Name, versions)
-	results := hyrum.VerifyMatrix(ctx, mgr, hyrum.TestCommand(tc), scratch, d.Name, files, versions)
+	results := hyrum.VerifyMatrix(ctx, mgr, testCommand, scratch, d.Name, files, versions)
 	for _, r := range results {
 		if r.Error != "" {
 			fmt.Fprintf(os.Stderr, "    %s: error: %s\n", r.Version, r.Error)

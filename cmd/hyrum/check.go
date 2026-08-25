@@ -5,18 +5,18 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/alpha-omega-security/hyrum/internal/hyrum"
 	"github.com/git-pkgs/managers"
 	"github.com/git-pkgs/managers/definitions"
+	"github.com/git-pkgs/vers"
 )
 
-// cmdCheck installs one or more dependencies at given versions and runs the
-// Hyrum's tests under tests/hyrum/<dep>/ against each. Exit is non-zero when
-// any version fails tests that another version passed.
+// cmdCheck installs one or more dependencies at given versions in isolated
+// scratch environments and runs the Hyrum's tests under tests/hyrum/<dep>/
+// against each. Exit is non-zero when any suite fails.
 func cmdCheck(ctx context.Context, args []string) error {
 	fs := newFlags("check")
 	var deps stringList
@@ -37,15 +37,10 @@ func cmdCheck(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	mgr, err := detectManager(t.Path, managerHint(t))
-	if err != nil {
-		return fmt.Errorf("detect package manager: %w", err)
-	}
-
 	testsRoot := outRoot(t.Path, *root)
 	failed := false
 	for _, spec := range deps {
-		ok, err := checkOne(ctx, t, mgr, testsRoot, spec)
+		ok, err := checkOne(ctx, t, testsRoot, spec)
 		if err != nil {
 			return err
 		}
@@ -57,133 +52,133 @@ func cmdCheck(ctx context.Context, args []string) error {
 	return nil
 }
 
-// managerHint returns the package-manager name to hand to managers.Detect so
-// its ranking (which prefers bun over npm for a bare package.json) does not
-// override what a lockfile or config already indicates. brief titles some
-// names ("Bun"); managers keys are lowercase and occasionally use a
-// different identifier.
-func managerHint(t *hyrum.Target) string {
-	for _, pm := range t.Report.PackageManagers {
-		if pm.Lockfile == "" {
-			continue
-		}
-		if _, err := os.Stat(filepath.Join(t.Path, pm.Lockfile)); err == nil {
-			return managerName(pm.Name)
-		}
-	}
-	if len(t.Report.PackageManagers) > 0 {
-		return managerName(t.Report.PackageManagers[0].Name)
-	}
-	return ""
+type verificationRuntimeFactory func(string, string) (managers.Manager, hyrum.TestCommand, error)
+
+// checkOne installs one dep spec in a fresh scratch directory and runs the
+// tests generated for it. The analyzed checkout is only read.
+func checkOne(ctx context.Context, t *hyrum.Target, testsRoot, spec string) (bool, error) {
+	return checkOneWithRuntime(ctx, t, testsRoot, spec, verificationRuntime)
 }
 
-func managerName(displayName string) string {
-	name := strings.ToLower(displayName)
-	if name == "go modules" {
-		return "gomod"
-	}
-	return name
-}
-
-// checkOne installs one dep spec and runs the tests generated for it. It
-// returns whether the tests passed; a returned error is a hard failure such
-// as an unknown ecosystem, distinct from a test failure.
-func checkOne(ctx context.Context, t *hyrum.Target, mgr managers.Manager, testsRoot, spec string) (bool, error) {
+func checkOneWithRuntime(
+	ctx context.Context,
+	t *hyrum.Target,
+	testsRoot, spec string,
+	runtimeFactory verificationRuntimeFactory,
+) (bool, error) {
 	name, version := splitDepSpec(spec)
 	if err := validateRelativePath("dependency name", name); err != nil {
 		return false, err
 	}
-	d, _ := findDep(t, name)
-	if d.Ecosystem == "" {
-		d.Ecosystem = mgr.Ecosystem()
+	d, ok := findDep(t, name)
+	if !ok || d.Ecosystem == "" {
+		return false, fmt.Errorf("%s: cannot determine dependency ecosystem", name)
+	}
+	if version == "" {
+		version = constraintVersion(d.Version, d.Ecosystem)
+		if version == "" {
+			return false, fmt.Errorf("%s: no installable version found; pass --dep %s@<version>", name, name)
+		}
 	}
 
 	testDir := filepath.Join(testsRoot, name)
-	info, err := os.Stat(testDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return false, fmt.Errorf("%s: no tests at %s", name, testDir)
-		}
-		return false, fmt.Errorf("%s: inspect tests at %s: %w", name, testDir, err)
-	}
-	if !info.IsDir() {
-		return false, fmt.Errorf("%s: test suite path is not a directory: %s", name, testDir)
-	}
-	if version != "" {
-		fmt.Fprintf(os.Stderr, "→ %s add %s@%s\n", mgr.Name(), name, version)
-		if r, err := mgr.Add(ctx, name, managers.AddOptions{Version: version}); err != nil || r == nil || !r.Success() {
-			stderr := ""
-			if r != nil {
-				stderr = r.Stderr
-			}
-			fmt.Fprintf(os.Stderr, "  install failed: %v %s\n", err, stderr)
-			return false, nil
-		}
-	}
-
-	ok, out, err := runTests(ctx, t.Path, testDir, d.Ecosystem)
+	files, err := readGeneratedFiles(testDir)
 	if err != nil {
 		return false, fmt.Errorf("%s: %w", name, err)
 	}
+
+	scratch, err := os.MkdirTemp("", "hyrum-check-")
+	if err != nil {
+		return false, fmt.Errorf("%s: create scratch directory: %w", name, err)
+	}
+	defer func() { _ = os.RemoveAll(scratch) }()
+
+	mgr, testCommand, err := runtimeFactory(scratch, d.Ecosystem)
+	if err != nil {
+		return false, fmt.Errorf("%s: verification runtime: %w", name, err)
+	}
+
+	fmt.Fprintf(os.Stderr, "→ %s add %s@%s in scratch\n", mgr.Name(), name, version)
+	results := hyrum.VerifyMatrix(ctx, mgr, testCommand, scratch, name, files, []string{version})
+	if len(results) != 1 {
+		return false, fmt.Errorf("%s@%s: verification returned %d results", name, version, len(results))
+	}
+	result := results[0]
+	passed := result.Error == "" && result.Fail == 0 && result.Pass > 0
 	status := "PASS"
-	if !ok {
+	if !passed {
 		status = "FAIL"
 	}
-	fmt.Printf("%s@%s: %s\n", name, versionOr(version, d.Version), status)
-	if !ok {
-		fmt.Println(indent(out, "  "))
+	fmt.Printf("%s@%s: %s\n", name, version, status)
+	if result.Error != "" {
+		fmt.Println(indent(result.Error, "  "))
+	} else if result.Output != "" {
+		fmt.Println(indent(result.Output, "  "))
 	}
-	return ok, nil
+	return passed, nil
 }
 
-// testRunners maps a purl ecosystem type to the command that runs tests under
-// a given directory. The command runs with cwd set to the target root so
-// relative imports and node_modules resolution behave as they would in CI.
-// The dir argument is a relative path; files is the pre-globbed list of test
-// files under it for runners that need explicit paths.
-var testRunners = map[string]func(dir string, files []string) []string{
-	hyrum.EcoNPM:  func(_ string, files []string) []string { return append([]string{"node", "--test"}, files...) },
-	hyrum.EcoPyPI: func(dir string, _ []string) []string { return []string{"python3", "-m", "pytest", "-q", dir} },
-	hyrum.EcoGo:   func(dir string, _ []string) []string { return []string{"go", "test", "-v", "./" + dir + "/..."} },
-}
-
-func runTests(ctx context.Context, targetRoot, testDir, ecosystem string) (ok bool, output string, err error) {
-	rel, _ := filepath.Rel(targetRoot, testDir)
-	build, known := testRunners[ecosystem]
-	if !known {
-		return false, "", fmt.Errorf("no test runner for ecosystem %q", ecosystem)
-	}
-	relFiles, err := runnableTestFiles(targetRoot, testDir)
+func readGeneratedFiles(testDir string) ([]hyrum.GeneratedFile, error) {
+	info, err := os.Stat(testDir)
 	if err != nil {
-		return false, "", err
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("no tests at %s", testDir)
+		}
+		return nil, fmt.Errorf("inspect tests at %s: %w", testDir, err)
 	}
-	if ecosystem == hyrum.EcoNPM && len(relFiles) == 0 {
-		return false, "", fmt.Errorf("no runnable test files under %s", testDir)
+	if !info.IsDir() {
+		return nil, fmt.Errorf("test suite path is not a directory: %s", testDir)
 	}
-	argv := build(rel, relFiles)
-	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
-	cmd.Dir = targetRoot
-	out, runErr := cmd.CombinedOutput()
-	return runErr == nil, string(out), nil
-}
 
-func runnableTestFiles(targetRoot, testDir string) ([]string, error) {
-	var files []string
-	err := filepath.WalkDir(testDir, func(path string, entry fs.DirEntry, walkErr error) error {
+	var files []hyrum.GeneratedFile
+	err = filepath.WalkDir(testDir, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
 		if !entry.Type().IsRegular() || filepath.Ext(path) == ".json" {
 			return nil
 		}
-		rel, err := filepath.Rel(targetRoot, path)
+		rel, err := filepath.Rel(testDir, path)
 		if err != nil {
 			return err
 		}
-		files = append(files, rel)
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		files = append(files, hyrum.GeneratedFile{Path: rel, Content: string(content)})
 		return nil
 	})
-	return files, err
+	if err != nil {
+		return nil, fmt.Errorf("read tests at %s: %w", testDir, err)
+	}
+	if len(files) == 0 {
+		return nil, fmt.Errorf("no runnable test files under %s", testDir)
+	}
+	return files, nil
+}
+
+// testRunners maps a purl ecosystem type to the command that runs tests in a
+// scratch directory. files contains relative paths for runners that require
+// explicit test files.
+var testRunners = map[string]func(dir string, files []string) []string{
+	hyrum.EcoNPM: func(_ string, files []string) []string { return append([]string{"node", "--test"}, files...) },
+	hyrum.EcoGo:  func(dir string, _ []string) []string { return []string{"go", "test", "-v", "./" + dir + "/..."} },
+}
+
+func verificationRuntime(scratch, ecosystem string) (managers.Manager, hyrum.TestCommand, error) {
+	if ecosystem == hyrum.EcoPyPI {
+		return hyrum.NewPythonVenvManager(scratch), hyrum.PythonVenvTestCommand(scratch), nil
+	}
+	testCommand, ok := testRunners[ecosystem]
+	if !ok {
+		return nil, nil, fmt.Errorf("no test runner for ecosystem %q", ecosystem)
+	}
+	mgr, err := detectManagerFor(scratch, ecosystem)
+	if err != nil {
+		return nil, nil, err
+	}
+	return mgr, hyrum.TestCommand(testCommand), nil
 }
 
 func detectManager(dir, hint string) (managers.Manager, error) {
@@ -204,12 +199,28 @@ func detectManager(dir, hint string) (managers.Manager, error) {
 // then target without further setup.
 var ecosystemManager = map[string]string{
 	hyrum.EcoNPM:      "npm",
-	hyrum.EcoPyPI:     "pip",
 	hyrum.EcoGo:       "gomod",
 	hyrum.EcoGem:      "bundler",
 	hyrum.EcoCargo:    "cargo",
 	hyrum.EcoComposer: "composer",
 	hyrum.EcoHex:      "mix",
+}
+
+// constraintVersion returns the inclusive lower bound of a native version
+// constraint. Scratch verification needs a concrete version to install.
+func constraintVersion(v, ecosystem string) string {
+	if v == "" {
+		return ""
+	}
+	rangeValue, err := vers.ParseNative(v, ecosystem)
+	if err != nil {
+		return ""
+	}
+	minimum, ok := rangeValue.MinimumVersion()
+	if !ok {
+		return ""
+	}
+	return minimum
 }
 
 // detectManagerFor constructs a manager for ecosystem in dir. dir may be
@@ -229,16 +240,6 @@ func splitDepSpec(s string) (name, version string) {
 		return s, ""
 	}
 	return s[:at], s[at+1:]
-}
-
-func versionOr(v, fallback string) string {
-	if v != "" {
-		return v
-	}
-	if fallback != "" {
-		return fallback
-	}
-	return "installed"
 }
 
 func indent(s, prefix string) string {
