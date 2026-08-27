@@ -1,8 +1,7 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended"],
+  "extends": ["config:recommended", ":disableDependencyDashboard"],
   "enabledManagers": ["gomod", "github-actions", "custom.regex"],
-  "dependencyDashboard": true,
   "automerge": false,
   "internalChecksFilter": "strict",
   "customManagers": [
@@ -42,19 +41,12 @@
       "description": "Raising the go directive raises the minimum Go version for every consumer",
       "matchManagers": ["gomod"],
       "matchDepTypes": ["golang", "toolchain"],
-      "groupName": "Go language version",
-      "dependencyDashboardApproval": true
+      "groupName": "Go language version"
     },
     {
       "matchManagers": ["gomod"],
       "matchDepTypes": ["indirect"],
       "enabled": true
-    },
-    {
-      "description": "Require explicit approval before starting a Go module major-version migration",
-      "matchManagers": ["gomod"],
-      "matchUpdateTypes": ["major"],
-      "dependencyDashboardApproval": true
     },
     {
       "description": "An indirect dependency's major version is decided by whatever requires it, never here",
