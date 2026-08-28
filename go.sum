@@ -31,8 +31,8 @@ github.com/git-pkgs/licensecheck v0.4.1 h1:b5ilmpIpgeeewBFjdhJ4W7jvwPIFsYQ7ujZma
 github.com/git-pkgs/licensecheck v0.4.1/go.mod h1:cfFO7yHHPeuXsoODHBWyevajH2yWcbfkIFELyG3ZpU0=
 github.com/git-pkgs/magic v0.2.0 h1:c7HqVxnP8c88EaVMH0/KraDFVTcmiXckRiSvNZEnvMQ=
 github.com/git-pkgs/magic v0.2.0/go.mod h1:3ndidt+yvFaI1M0aEkkzkOlFnLPkeVQASIUojazcxCI=
-github.com/git-pkgs/managers v0.10.1 h1:T877XtuXoJNweDTMGj1H6AOeVolDO44IvsgDN5jq3Ko=
-github.com/git-pkgs/managers v0.10.1/go.mod h1:8DR7tIQEEyPyJ7QGzStVbovnGl7tAJcrhQLzjQPzFzc=
+github.com/git-pkgs/managers v0.11.0 h1:XMEa2VsnN4XsBA3+EnSj3ZE69LrF5SEsjEyW/NncFXc=
+github.com/git-pkgs/managers v0.11.0/go.mod h1:8DR7tIQEEyPyJ7QGzStVbovnGl7tAJcrhQLzjQPzFzc=
 github.com/git-pkgs/manifests v0.10.0 h1:wRYoX8l5mdTxSQ2/99gIByLQPBJUPW2VdrBSX0If2fA=
 github.com/git-pkgs/manifests v0.10.0/go.mod h1:y1p9ICibE2tqveiHJEJZz4mayo+mt6MhaBY3LHHr1mY=
 github.com/git-pkgs/outline v0.2.1 h1:/RiTE9w6cV00o4e6UEWG0iF9hMX0MoHYpLAa5MwcsFI=
@@ -68,8 +68,8 @@ github.com/oapi-codegen/runtime v1.7.0 h1:t7358VYPvNbWJ9gdAkIK/smVeHpBf6yp8VTsaZ
 github.com/oapi-codegen/runtime v1.7.0/go.mod h1:GwV7hC2hviaMzj+ITfHVRESK5J2W/GefVwIND/bMGvU=
 github.com/odvcencio/gotreesitter v0.51.0 h1:tSAcoC1wGyCIOgXF5BgwjiTgA+UW8jW2Lb15wDyXRWk=
 github.com/odvcencio/gotreesitter v0.51.0/go.mod h1:hBVkghd0paaYAVwd2087vfwdeU984bQbMo9LvpE0moo=
-github.com/package-url/packageurl-go v0.1.6 h1:YO3p6u1XmCUliivUg/qWphaY8vI6hxSnnPv7Bfg3m5M=
-github.com/package-url/packageurl-go v0.1.6/go.mod h1:nKAWB8E6uk1MHqiS/lQb9pYBGH2+mdJ2PJc2s50dQY0=
+github.com/package-url/packageurl-go v0.1.7 h1:iFWg6tzAjLA6F/qX3M5nZaiMHJgc+p2zxVyr/fY+sZY=
+github.com/package-url/packageurl-go v0.1.7/go.mod h1:nKAWB8E6uk1MHqiS/lQb9pYBGH2+mdJ2PJc2s50dQY0=
 github.com/pandatix/go-cvss v0.6.4 h1:9w2RCO/Q4UTiJyEgpCHRiVc6CfrsFEnkoX+OtATqKio=
 github.com/pandatix/go-cvss v0.6.4/go.mod h1:/ukvQnYlrKl3o/DVp7/GO2UZyZheuo/maOK0U1nBEhQ=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
