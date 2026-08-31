@@ -15,8 +15,8 @@ github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/ecosyste-ms/ecosystems-go v0.4.0 h1:5A+zF+XWT8sYYYjlc2/tI1SmiDGzbHLyT9CapVc5dGA=
 github.com/ecosyste-ms/ecosystems-go v0.4.0/go.mod h1:FVswCrp3DQkur1HjVqfDF/gYrDSEmiFflntcB1G0DbA=
-github.com/git-pkgs/brief v0.11.0 h1:rTzNw+46oVdxPpfMKJjwjqQ81Th2oAwm0VFaZCwBr+s=
-github.com/git-pkgs/brief v0.11.0/go.mod h1:BOtq1uUQ5YEgvOCBZycrT2ROO9EgsIjNM82MhAb0WH8=
+github.com/git-pkgs/brief v0.12.0 h1:qeUb0BSMLfjvmez8mIWuZwUTURAB/aRiGriB1C6r20E=
+github.com/git-pkgs/brief v0.12.0/go.mod h1:BOtq1uUQ5YEgvOCBZycrT2ROO9EgsIjNM82MhAb0WH8=
 github.com/git-pkgs/changelog v0.2.0 h1:9THaZA38qg24Qpuf/kf01OKduWHaNuanbxPp/GJ7NLU=
 github.com/git-pkgs/changelog v0.2.0/go.mod h1:4R1qfD9+PVbzlRd2h9SRBOYFLtUXI8N+VcDrYpErI90=
 github.com/git-pkgs/clone v0.6.0 h1:UsjHaoZBZsaLLCLLnnNNRmkSdhzsUyDLJTvUo3uulpY=
