@@ -26,6 +26,10 @@ that has moved or been archived. Dependents can also be listed in a
 [ecosyste.ms](https://ecosyste.ms) for the most-used packages depending on
 `ws` and filters out forks and archived repos.
 
+Do not put usernames or tokens in a `--dependent` URL. Hyrum rejects URL
+userinfo before logging, naming, or cloning the repository; configure Git's
+credential helper when a private HTTPS repository needs authentication.
+
 ## Running the corpus against a change
 
 From the library checkout, install the local build and run the corpus:

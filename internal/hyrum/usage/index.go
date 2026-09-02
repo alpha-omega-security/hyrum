@@ -3,12 +3,12 @@ package usage
 import (
 	"context"
 	"io/fs"
-	"os"
 	gopath "path"
 	"path/filepath"
 	"sort"
 	"strings"
 
+	"github.com/alpha-omega-security/hyrum/internal/safefs"
 	"github.com/git-pkgs/outline"
 	"github.com/git-pkgs/provides"
 )
@@ -114,13 +114,18 @@ func scanManyWithOptions(
 	targets []scanTarget,
 	opts IndexOptions,
 ) (map[string]*Surface, error) {
+	targetRoot, err := safefs.Open(root)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = targetRoot.Close() }()
 	exts := set(sp.exts...)
 	collectors := make(map[string]*collector, len(targets))
 	for _, target := range targets {
 		collectors[target.key] = newCollector()
 	}
 
-	err := walkSourceFiles(ctx, root, exts, func(path string) error {
+	err = walkSourceFiles(ctx, root, exts, func(path string) error {
 		rel, relErr := filepath.Rel(root, path)
 		if relErr != nil {
 			return nil
@@ -129,7 +134,7 @@ func scanManyWithOptions(
 		if !opts.allows(rel, scope) {
 			return nil
 		}
-		src, rerr := os.ReadFile(path)
+		src, rerr := targetRoot.ReadRegularWithin(rel)
 		if rerr != nil {
 			return nil
 		}

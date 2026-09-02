@@ -42,7 +42,7 @@ func run() int {
 	}
 	cmd, ok := commands[args[0]]
 	if !ok {
-		fmt.Fprintf(os.Stderr, "hyrum: unknown subcommand %q\n\n", args[0])
+		fmt.Fprintf(os.Stderr, "hyrum: unknown subcommand %q\n\n", safeLine(args[0]))
 		printUsage()
 		return exitUsage
 	}
@@ -53,7 +53,7 @@ func run() int {
 	defer stop()
 
 	if err := cmd(ctx, args[1:]); err != nil {
-		fmt.Fprintf(os.Stderr, "hyrum %s: %v\n", args[0], err)
+		fmt.Fprintf(os.Stderr, "hyrum %s: %s\n", safeLine(args[0]), safeText(err.Error()))
 		return 1
 	}
 	return 0

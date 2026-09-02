@@ -92,7 +92,7 @@ func verifyOne(ctx context.Context, mgr managers.Manager, tc TestCommand, scratc
 	output, runErr := c.CombinedOutput()
 	out := string(output)
 	res.Pass, res.Fail, res.Failed = parseTestOutput(out)
-	if runErr != nil && res.Fail == 0 && res.Pass == 0 {
+	if runErr != nil {
 		res.Error = fmt.Sprintf("%s: %v: %s", argv[0], runErr, tail(out, errorTailBytes))
 	}
 	if res.Fail > 0 || res.Error != "" {

@@ -8,10 +8,10 @@ import (
 	"embed"
 	"fmt"
 	"io/fs"
-	"os"
 	"path/filepath"
 
 	"github.com/alpha-omega-security/harness"
+	"github.com/alpha-omega-security/hyrum/internal/safefs"
 )
 
 //go:embed */SKILL.md */schema.json
@@ -22,7 +22,16 @@ var FS embed.FS
 // directory.
 func Stage(h harness.Harness, workspace, name string) (string, error) {
 	dst := h.SkillDir(workspace, name)
-	if err := os.MkdirAll(dst, 0o755); err != nil {
+	rel, err := filepath.Rel(workspace, dst)
+	if err != nil || !filepath.IsLocal(rel) {
+		return "", fmt.Errorf("skill directory %q is outside workspace", dst)
+	}
+	root, err := safefs.Open(workspace)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = root.Close() }()
+	if err := root.MkdirAll(rel, 0o755); err != nil {
 		return "", err
 	}
 	entries, err := fs.ReadDir(FS, name)
@@ -37,7 +46,7 @@ func Stage(h harness.Harness, workspace, name string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		if err := os.WriteFile(filepath.Join(dst, e.Name()), b, 0o644); err != nil {
+		if err := root.WriteFile(filepath.Join(rel, e.Name()), b, 0o644); err != nil {
 			return "", err
 		}
 	}

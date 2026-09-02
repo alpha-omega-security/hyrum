@@ -5,11 +5,13 @@
 # which win over built-in defaults. Unknown keys and incorrect types are
 # errors.
 
-# Harness backend for LLM-driven skills.
+# Harness backend for LLM-driven skills. Ignored in an automatically discovered
+# target config; pass --config explicitly to authorize provider selection.
 # backend: claude          # claude | codex | copilot | opencode
 
 # Per-skill model tier. The selected backend maps mid/high/max to its own
-# models. Keys match the model-driven skills under skills/.
+# models. Keys match the model-driven skills under skills/. Also ignored in an
+# automatically discovered target config.
 # models:
 #   hyrum-usage:    mid
 #   hyrum-history:  mid
@@ -31,7 +33,7 @@
 # Working directory for dependency clones and skill workspaces. This setting is
 # ignored when the config is auto-discovered; pass --config explicitly to trust
 # it. Relative paths use the directory containing that explicit config file.
-# work: ~/.cache/hyrum
+# work: ~/.cache/hyrum/work
 
 # Maximum rendered size of each dependency source outline. Hyrum selects whole
 # files related to observed usage and fails before a model run if required

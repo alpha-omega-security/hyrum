@@ -147,7 +147,7 @@ func TestSplitDependentSpec(t *testing.T) {
 }
 
 func TestIndent(t *testing.T) {
-	if got := indent("a\nb\n", "  "); got != "  a\n  b" {
+	if got := indent("a\nb\n"); got != "  a\n  b" {
 		t.Errorf("got %q", got)
 	}
 }

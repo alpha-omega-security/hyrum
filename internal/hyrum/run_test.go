@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/alpha-omega-security/harness"
+	"github.com/alpha-omega-security/hyrum/internal/safefs"
 )
 
 // shHarness embeds ClaudeHarness so all interface methods are satisfied, then
@@ -24,6 +25,20 @@ type shHarness struct {
 	noWrite bool
 	stderr  string
 	block   bool
+}
+
+type filePromptHarness struct{ shHarness }
+
+func (filePromptHarness) GuideFilename() string     { return "AGENTS.md" }
+func (filePromptHarness) SystemPromptViaArgs() bool { return false }
+
+type outputSymlinkHarness struct {
+	shHarness
+	target string
+}
+
+func (h outputSymlinkHarness) Args(j harness.Job) []string {
+	return []string{"-c", fmt.Sprintf("ln -s %q %q", h.target, j.OutputFile)}
 }
 
 type recordingHarness struct {
@@ -279,7 +294,12 @@ func TestPrepareOutputRejectsSymlinkedDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := prepareOutput(ws, filepath.Join("sub", "victim.json")); err == nil {
+	root, err := safefs.Open(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	if _, err := prepareOutput(root, filepath.Join("sub", "victim.json")); err == nil {
 		t.Fatal("want nested output path rejected")
 	}
 	b, err := os.ReadFile(victim)
@@ -296,6 +316,51 @@ func TestRunSkillMissingOutput(t *testing.T) {
 	h := shHarness{noWrite: true}
 	if _, err := RunSkillWithEmit(context.Background(), h, ws, "hyrum-generate", "tests.json", nil); err == nil {
 		t.Fatal("want error when tests.json not written")
+	}
+}
+
+func TestRunSkillReplacesPlantedWorkspaceSymlinks(t *testing.T) {
+	ws := t.TempDir()
+	victim := filepath.Join(t.TempDir(), "victim")
+	if err := os.WriteFile(victim, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := filePromptHarness{shHarness{payload: `{"files":[{"path":"test.js","content":"ok"}]}`}}
+	skillDir := h.SkillDir(ws, "hyrum-generate")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{
+		filepath.Join(ws, "AGENTS.md"),
+		filepath.Join(ws, "schema.json"),
+		filepath.Join(skillDir, "SKILL.md"),
+	} {
+		if err := os.Symlink(victim, path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := RunSkillWithEmit(t.Context(), h, ws, "hyrum-generate", "tests.json", nil); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(victim); string(got) != "keep" {
+		t.Fatalf("guide staging changed external file to %q", got)
+	}
+	for _, path := range []string{filepath.Join(ws, "AGENTS.md"), filepath.Join(ws, "schema.json"), filepath.Join(skillDir, "SKILL.md")} {
+		if info, err := os.Lstat(path); err != nil || !info.Mode().IsRegular() {
+			t.Fatalf("%s was not replaced with a regular file: %v, %v", path, info, err)
+		}
+	}
+}
+
+func TestRunSkillRejectsModelOutputSymlink(t *testing.T) {
+	ws := t.TempDir()
+	victim := filepath.Join(t.TempDir(), "secret.json")
+	if err := os.WriteFile(victim, []byte(`{"files":[{"path":"stolen.js","content":"secret"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := outputSymlinkHarness{shHarness: shHarness{}, target: victim}
+	if _, err := RunSkillWithEmit(t.Context(), h, ws, "hyrum-generate", "tests.json", nil); err == nil {
+		t.Fatal("model-produced output symlink was accepted")
 	}
 }
 
@@ -319,8 +384,8 @@ func TestWriteFilesRejectsFinalSymlinkEscape(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := WriteFiles(out, []GeneratedFile{{Path: "test.js", Content: "overwritten"}}); err == nil {
-		t.Fatal("WriteFiles followed a final symlink outside the output root")
+	if _, err := WriteFiles(out, []GeneratedFile{{Path: "test.js", Content: "overwritten"}}); err != nil {
+		t.Fatal(err)
 	}
 	body, err := os.ReadFile(victim)
 	if err != nil {
@@ -328,6 +393,9 @@ func TestWriteFilesRejectsFinalSymlinkEscape(t *testing.T) {
 	}
 	if string(body) != "original" {
 		t.Fatalf("outside file changed to %q", body)
+	}
+	if info, err := os.Lstat(filepath.Join(out, "test.js")); err != nil || !info.Mode().IsRegular() {
+		t.Fatalf("output was not replaced with a regular file: %v, %v", info, err)
 	}
 }
 

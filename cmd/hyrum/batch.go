@@ -46,8 +46,8 @@ type tracedSurface struct {
 	Notes       string            `json:"notes,omitempty"`
 }
 
-func readUsageSurface(path string) (*usage.Surface, error) {
-	contents, err := os.ReadFile(path)
+func readUsageSurface(ws, name string) (*usage.Surface, error) {
+	contents, err := readWorkspaceFile(ws, name)
 	if err != nil {
 		return nil, err
 	}
@@ -60,11 +60,8 @@ func readUsageSurface(path string) (*usage.Surface, error) {
 
 func stageUsageBatches(ws string, batches []*usage.Surface) error {
 	for i, batch := range batches {
-		dir := filepath.Join(ws, "batches", batchDirectory(i+1))
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return err
-		}
-		if err := writeJSON(filepath.Join(dir, "usage.json"), batch); err != nil {
+		name := filepath.Join("batches", batchDirectory(i+1), "usage.json")
+		if err := writeWorkspaceJSON(ws, name, batch); err != nil {
 			return err
 		}
 	}
@@ -127,14 +124,13 @@ func (p *pipeline) runBatchHistory(
 	runner hyrum.Runner,
 	ws, depName string,
 ) ([]byte, float64, []string, error) {
-	breaksPath := filepath.Join(ws, "breaks.json")
-	_ = os.Remove(breaksPath)
+	_ = removeWorkspacePath(ws, "breaks.json", false)
 	result, err := p.runGenerationStep(ctx, runner, ws, depName, skillSteps[1])
 	if err != nil {
 		return nil, 0, nil, nil
 	}
 	breaks := append([]byte(nil), result.Output...)
-	if err := os.WriteFile(breaksPath, breaks, 0o644); err != nil {
+	if err := writeWorkspaceFile(ws, "breaks.json", breaks); err != nil {
 		return nil, 0, nil, err
 	}
 	var recovered []string
@@ -167,7 +163,7 @@ func (p *pipeline) runGenerationBatch(
 		}
 	}
 
-	_ = os.Remove(filepath.Join(ws, "tests.json"))
+	_ = removeWorkspacePath(ws, "tests.json", false)
 	generateResult, err := p.runGenerationStep(ctx, runner, ws, depName, skillSteps[2])
 	if err != nil {
 		return nil, err
@@ -179,17 +175,16 @@ func (p *pipeline) runGenerationBatch(
 }
 
 func prepareGenerationBatch(ws string, batch *usage.Surface, breaks []byte, number int) error {
-	if err := writeJSON(filepath.Join(ws, "usage.json"), batch); err != nil {
+	if err := writeWorkspaceJSON(ws, "usage.json", batch); err != nil {
 		return err
 	}
-	breaksPath := filepath.Join(ws, "breaks.json")
 	if number == 1 && len(breaks) > 0 {
-		return os.WriteFile(breaksPath, breaks, 0o644)
+		return writeWorkspaceFile(ws, "breaks.json", breaks)
 	}
-	if err := os.Remove(breaksPath); err != nil && !os.IsNotExist(err) {
+	if err := removeWorkspacePath(ws, "breaks.json", false); err != nil {
 		return err
 	}
-	_ = os.Remove(filepath.Join(ws, "surface.json"))
+	_ = removeWorkspacePath(ws, "surface.json", false)
 	return nil
 }
 
@@ -200,7 +195,7 @@ func (b *completedGenerationBatch) recordUsageResult(ws string, result *hyrum.Ru
 		b.RecoveredSteps = append(b.RecoveredSteps, skillSteps[0].name+" batch "+strconv.Itoa(b.Metadata.Number))
 	}
 	b.Trace = append(json.RawMessage(nil), result.Output...)
-	if err := os.WriteFile(filepath.Join(ws, "surface.json"), result.Output, 0o644); err != nil {
+	if err := writeWorkspaceFile(ws, "surface.json", result.Output); err != nil {
 		return err
 	}
 	return writeBatchRaw(ws, b.Metadata.Number, "surface.json", result.Output)
@@ -237,35 +232,35 @@ func restoreBatchedWorkspace(
 	traced []json.RawMessage,
 	generated hyrum.GenerateResult,
 ) error {
-	if err := writeJSON(filepath.Join(ws, "usage.json"), mergeUsageBatches(batches)); err != nil {
+	if err := writeWorkspaceJSON(ws, "usage.json", mergeUsageBatches(batches)); err != nil {
 		return err
 	}
 	if len(breaks) > 0 {
-		if err := os.WriteFile(filepath.Join(ws, "breaks.json"), breaks, 0o644); err != nil {
+		if err := writeWorkspaceFile(ws, "breaks.json", breaks); err != nil {
 			return err
 		}
 	}
 	if err := restoreMergedTrace(ws, traced); err != nil {
 		return err
 	}
-	return writeJSON(filepath.Join(ws, "tests.json"), generated)
+	return writeWorkspaceJSON(ws, "tests.json", generated)
 }
 
 func restoreMergedTrace(ws string, traced []json.RawMessage) error {
 	surface, err := mergeTracedSurfaces(traced)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "  merge surface.json: %v (validation will use usage.json)\n", err)
-		_ = os.Remove(filepath.Join(ws, "surface.json"))
+		fmt.Fprintf(os.Stderr, "  merge surface.json: %s (validation will use usage.json)\n", safeLine(err.Error()))
+		_ = removeWorkspacePath(ws, "surface.json", false)
 		return nil
 	}
 	if surface == nil {
 		return nil
 	}
-	return writeJSON(filepath.Join(ws, "surface.json"), surface)
+	return writeWorkspaceJSON(ws, "surface.json", surface)
 }
 
 func writeBatchRaw(ws string, number int, name string, contents []byte) error {
-	return os.WriteFile(filepath.Join(ws, "batches", batchDirectory(number), name), contents, 0o644)
+	return writeWorkspaceFile(ws, filepath.Join("batches", batchDirectory(number), name), contents)
 }
 
 func usageSymbolNames(surface *usage.Surface) []string {

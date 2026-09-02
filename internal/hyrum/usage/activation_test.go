@@ -1,6 +1,10 @@
 package usage
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestIndexRecordsConfiguredActivationStrings(t *testing.T) {
 	root := writeTree(t, map[string]string{
@@ -29,6 +33,47 @@ func TestIndexRecordsConfiguredActivationStrings(t *testing.T) {
 	assertActivationSites(t, production, map[string]Scope{
 		"src/settings.py": ScopeProduction,
 	})
+}
+
+func TestIndexDoesNotReadActivationThroughSourceSymlink(t *testing.T) {
+	root := t.TempDir()
+	secret := filepath.Join(t.TempDir(), "credentials.py")
+	if err := os.WriteFile(secret, []byte("token = \"sk-ant-secret-activation\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(secret, filepath.Join(root, "settings.py")); err != nil {
+		t.Fatal(err)
+	}
+	const dep = "pkg:pypi/example"
+	surface, err := IndexWithOptions(t.Context(), root, dep, IndexOptions{
+		Activations: map[string][]string{dep: {"sk-ant-secret-activation"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(surface.Symbols) != 0 {
+		t.Fatalf("symlinked source was indexed: %+v", surface.Symbols)
+	}
+}
+
+func TestIndexPreservesInTreeSourceSymlink(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "settings.source"), []byte("token = \"in-tree-activation\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("settings.source", filepath.Join(root, "settings.py")); err != nil {
+		t.Fatal(err)
+	}
+	const dep = "pkg:pypi/example"
+	surface, err := IndexWithOptions(t.Context(), root, dep, IndexOptions{
+		Activations: map[string][]string{dep: {"in-tree-activation"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if symbolNames(surface)["in-tree-activation"] != 1 {
+		t.Fatalf("in-tree source symlink was not indexed: %+v", surface.Symbols)
+	}
 }
 
 func TestIndexManyKeepsActivationsWithTheirDependency(t *testing.T) {

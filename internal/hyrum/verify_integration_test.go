@@ -12,9 +12,9 @@ import (
 )
 
 // TestVerifyMatrixNPM exercises the full scratch-dir + init + add + node --test
-// path against real npm and the ws test file generated in an earlier session
-// run. It is skipped under -short and when npm or the fixture are absent so CI
-// stays hermetic.
+// path against real npm and an explicitly selected, reviewed tests.json
+// fixture. It is skipped under -short and unless the fixture is opted into so
+// an unrelated process cannot plant JavaScript at a predictable shared path.
 func TestVerifyMatrixNPM(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration")
@@ -22,13 +22,17 @@ func TestVerifyMatrixNPM(t *testing.T) {
 	if _, err := exec.LookPath("npm"); err != nil {
 		t.Skip("npm not on PATH")
 	}
-	body, err := os.ReadFile("/tmp/hyrum/npm/ws/tests.json")
+	fixture := os.Getenv("HYRUM_TEST_NPM_FIXTURE")
+	if fixture == "" {
+		t.Skip("set HYRUM_TEST_NPM_FIXTURE to run the npm integration test")
+	}
+	body, err := os.ReadFile(fixture)
 	if err != nil {
-		t.Skipf("fixture missing: %v", err)
+		t.Fatalf("read HYRUM_TEST_NPM_FIXTURE: %v", err)
 	}
 	var out struct{ Files []GeneratedFile }
 	if err := json.Unmarshal(body, &out); err != nil || len(out.Files) == 0 {
-		t.Skipf("fixture unparseable: %v", err)
+		t.Fatalf("fixture unparseable: %v", err)
 	}
 
 	scratch := t.TempDir()

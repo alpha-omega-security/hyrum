@@ -123,14 +123,6 @@ func TestPrepareWorkspaceRemovesTransientArtifacts(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	depDir := filepath.Join(ws, "dep")
-	if err := os.Mkdir(depDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	keep := filepath.Join(depDir, "keep")
-	if err := os.WriteFile(keep, nil, 0o644); err != nil {
-		t.Fatal(err)
-	}
 	for _, name := range transientWorkspaceDirs {
 		if err := os.Mkdir(filepath.Join(ws, name), 0o755); err != nil {
 			t.Fatal(err)
@@ -152,9 +144,6 @@ func TestPrepareWorkspaceRemovesTransientArtifacts(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(ws, name)); !os.IsNotExist(err) {
 			t.Errorf("transient directory %q remains: %v", name, err)
 		}
-	}
-	if _, err := os.Stat(keep); err != nil {
-		t.Fatalf("reusable dependency clone was removed: %v", err)
 	}
 }
 
@@ -235,15 +224,18 @@ func TestResolveGenOptionsPrecedence(t *testing.T) {
 	target := t.TempDir()
 	backend, configOut, configWork, configTargetName := "codex", "configured/out", "configured/work", "configured-target"
 	configOutlineBytes := 131072
-	cfg := hyrumconfig.File{Backend: &backend, Out: &configOut, Work: &configWork, TargetName: &configTargetName, OutlineBytes: &configOutlineBytes}
+	cfg := hyrumconfig.File{Backend: &backend, Out: &configOut, Work: &configWork, TargetName: &configTargetName, OutlineBytes: &configOutlineBytes, Models: map[string]string{"hyrum-generate": "max"}}
 
-	t.Run("discovered config cannot set work", func(t *testing.T) {
+	t.Run("discovered config cannot select credential-bearing execution", func(t *testing.T) {
 		got, err := resolveGenOptions(target, configPath, false, cfg, defaultGenOptions(), nil)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got.backend != "codex" {
+		if got.backend != defaultGenBackend {
 			t.Errorf("backend = %q", got.backend)
+		}
+		if got.models != nil {
+			t.Errorf("models = %v", got.models)
 		}
 		if got.out != filepath.Join(target, configOut) {
 			t.Errorf("out = %q", got.out)
@@ -266,6 +258,9 @@ func TestResolveGenOptionsPrecedence(t *testing.T) {
 		}
 		if got.work != filepath.Join(configDir, configWork) {
 			t.Errorf("work = %q", got.work)
+		}
+		if got.backend != "codex" || got.models["hyrum-generate"] != "max" {
+			t.Errorf("explicit execution config was not applied: %+v", got)
 		}
 	})
 
@@ -544,7 +539,7 @@ func TestCmdGenConfigFileBehavior(t *testing.T) {
 	})
 
 	t.Run("missing automatic is optional", func(t *testing.T) {
-		err := cmdGen(context.Background(), []string{target})
+		err := cmdGen(context.Background(), []string{"--work", t.TempDir(), target})
 		if err == nil || !strings.Contains(err.Error(), "no dependencies selected") {
 			t.Fatalf("error = %v", err)
 		}
@@ -559,6 +554,16 @@ func TestVisitedFlagsRecordsExplicitDefaults(t *testing.T) {
 	}
 	if !visitedFlags(fs)["backend"] {
 		t.Fatal("explicit default-valued flag was not recorded")
+	}
+}
+
+func TestResolveContainerPinsDefaultAndPreservesExplicitImage(t *testing.T) {
+	if got := resolveContainer("default"); got != hyrum.DefaultRunnerImage {
+		t.Fatalf("default image = %q", got)
+	}
+	const custom = "registry.example/runner:v1"
+	if got := resolveContainer(custom); got != custom {
+		t.Fatalf("custom image = %q", got)
 	}
 }
 

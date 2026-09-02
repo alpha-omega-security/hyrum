@@ -3,14 +3,13 @@ package hyrum
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
 
+	"github.com/alpha-omega-security/hyrum/internal/safefs"
 	"github.com/git-pkgs/changelog"
 	"github.com/git-pkgs/purl"
 	"github.com/git-pkgs/vers"
@@ -144,6 +143,10 @@ func matchingChanges(changes []string, name string) []string {
 // the `SHA date subject / body / manifest paths / matching changes / ---`
 // text format the hyrum-history skill reads.
 func (h *HistoryIndex) WriteGitLog(dep, path string) error {
+	return os.WriteFile(path, h.renderGitLog(dep), 0o644)
+}
+
+func (h *HistoryIndex) renderGitLog(dep string) []byte {
 	var b strings.Builder
 	for _, c := range h.For(dep) {
 		fmt.Fprintf(&b, "%s %s %s\n", c.SHA, c.Date, c.Subject)
@@ -163,7 +166,7 @@ func (h *HistoryIndex) WriteGitLog(dep, path string) error {
 		}
 		b.WriteString("---\n")
 	}
-	return os.WriteFile(path, []byte(b.String()), 0o644)
+	return []byte(b.String())
 }
 
 // maxLogRecord bounds a single git-log record (SHA + date + subject + body +
@@ -386,13 +389,22 @@ func manifestPaths(t *Target) []string {
 // file rather than a hard failure, because hyrum-history treats every input
 // as optional.
 func GatherHistory(ctx context.Context, idx *HistoryIndex, d Dep, depDir, latest, ws string) error {
-	if err := idx.WriteGitLog(d.Name, filepath.Join(ws, "git-log.txt")); err != nil {
+	workspace, err := safefs.Open(ws)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = workspace.Close() }()
+	if err := workspace.WriteFile("git-log.txt", idx.renderGitLog(d.Name), 0o644); err != nil {
 		return err
 	}
 	if depDir != "" {
-		writeChangelog(depDir, filepath.Join(ws, "changelog.json"), d.Version, latest)
+		if entries, ok := readChangelog(depDir, d.Version, latest); ok {
+			_ = workspace.WriteJSON("changelog.json", entries)
+		}
 	}
-	writeVulns(ctx, d.PURL, filepath.Join(ws, "vulns.json"))
+	if summaries, ok := readVulns(ctx, d.PURL); ok {
+		_ = workspace.WriteJSON("vulns.json", summaries)
+	}
 	return nil
 }
 
@@ -402,10 +414,10 @@ type changelogEntry struct {
 	Body    string `json:"body"`
 }
 
-func writeChangelog(depDir, out, from, to string) {
+func readChangelog(depDir, from, to string) ([]changelogEntry, bool) {
 	p, err := changelog.FindAndParse(depDir)
 	if err != nil || p == nil {
-		return
+		return nil, false
 	}
 	// When both endpoints look like exact versions that could appear as
 	// changelog headers, slice to the range so hyrum-history reads only
@@ -413,8 +425,7 @@ func writeChangelog(depDir, out, from, to string) {
 	// every entry the file has.
 	if isExactVersion(from) && isExactVersion(to) {
 		if body, ok := p.Between(from, to); ok && body != "" {
-			writeJSONFile(out, []changelogEntry{{Version: from + ".." + to, Body: body}})
-			return
+			return []changelogEntry{{Version: from + ".." + to, Body: body}}, true
 		}
 	}
 	var entries []changelogEntry
@@ -429,7 +440,7 @@ func writeChangelog(depDir, out, from, to string) {
 		}
 		entries = append(entries, changelogEntry{Version: v, Date: date, Body: e.Content})
 	}
-	writeJSONFile(out, entries)
+	return entries, true
 }
 
 // isExactVersion reports whether v is a single resolved version rather than a
@@ -439,29 +450,30 @@ func isExactVersion(v string) bool {
 	return err == nil && (c.Operator == "" || c.Operator == "=") && c.Version != "*"
 }
 
-func writeVulns(ctx context.Context, purlStr, out string) {
+type vulnerabilitySummary struct {
+	ID       string   `json:"id"`
+	Summary  string   `json:"summary"`
+	Aliases  []string `json:"aliases,omitempty"`
+	Severity string   `json:"severity,omitempty"`
+	Fixed    string   `json:"fixed,omitempty"`
+}
+
+func readVulns(ctx context.Context, purlStr string) ([]vulnerabilitySummary, bool) {
 	if purlStr == "" {
-		return
+		return nil, false
 	}
 	p, err := purl.Parse(purlStr)
 	if err != nil {
-		return
+		return nil, false
 	}
 	src := osv.New()
 	list, err := src.Query(ctx, p)
 	if err != nil || len(list) == 0 {
-		return
+		return nil, false
 	}
-	type v struct {
-		ID       string   `json:"id"`
-		Summary  string   `json:"summary"`
-		Aliases  []string `json:"aliases,omitempty"`
-		Severity string   `json:"severity,omitempty"`
-		Fixed    string   `json:"fixed,omitempty"`
-	}
-	slim := make([]v, 0, len(list))
+	slim := make([]vulnerabilitySummary, 0, len(list))
 	for _, x := range list {
-		slim = append(slim, v{
+		slim = append(slim, vulnerabilitySummary{
 			ID:       x.ID,
 			Summary:  x.Summary,
 			Aliases:  x.Aliases,
@@ -469,7 +481,7 @@ func writeVulns(ctx context.Context, purlStr, out string) {
 			Fixed:    x.FixedVersion(p.Type, p.Name),
 		})
 	}
-	writeJSONFile(out, slim)
+	return slim, true
 }
 
 func severityOf(x vulns.Vulnerability) string {
@@ -477,12 +489,4 @@ func severityOf(x vulns.Vulnerability) string {
 		return s
 	}
 	return ""
-}
-
-func writeJSONFile(path string, v any) {
-	b, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
-		return
-	}
-	_ = os.WriteFile(path, b, 0o644)
 }
