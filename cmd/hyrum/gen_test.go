@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/alpha-omega-security/harness"
+	harnesscontainer "github.com/alpha-omega-security/harness/container"
 	hyrumconfig "github.com/alpha-omega-security/hyrum/internal/config"
 	"github.com/alpha-omega-security/hyrum/internal/hyrum"
 	"github.com/alpha-omega-security/hyrum/internal/hyrum/usage"
@@ -65,6 +66,22 @@ func TestNewPipelineIndexesProductionUsageByDefault(t *testing.T) {
 	want := []usage.Scope{usage.ScopeProduction}
 	if !reflect.DeepEqual(p.usageOptions.Scopes, want) {
 		t.Errorf("usage scopes = %v, want %v", p.usageOptions.Scopes, want)
+	}
+}
+
+func TestPipelineBuildsContainerRunner(t *testing.T) {
+	runtime := harnesscontainer.Runtime{Bin: "fake", Rootless: true}
+	p := &pipeline{containerImage: "runner:image", containerRuntime: &runtime}
+	runner, err := p.runnerFor("/target", "/dependency")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := runner.(hyrum.ContainerRunner)
+	if !ok {
+		t.Fatalf("runner type = %T", runner)
+	}
+	if got.Runtime != runtime || got.Image != "runner:image" || got.TargetPath != "/target" || got.DependencyPath != "/dependency" {
+		t.Fatalf("runner = %+v", got)
 	}
 }
 

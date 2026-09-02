@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/alpha-omega-security/harness"
+	harnesscontainer "github.com/alpha-omega-security/harness/container"
 	hyrumconfig "github.com/alpha-omega-security/hyrum/internal/config"
 	"github.com/alpha-omega-security/hyrum/internal/hyrum"
 	"github.com/alpha-omega-security/hyrum/internal/hyrum/usage"
@@ -367,7 +368,8 @@ type pipeline struct {
 	// containerImage non-empty means the runner is a ContainerRunner and each
 	// genOne call sets its TargetPath to the analysed target so /work/target
 	// is a read-only bind mount instead of a host symlink.
-	containerImage string
+	containerImage   string
+	containerRuntime *harnesscontainer.Runtime
 	// verify runs the generated tests against baseline and latest after
 	// writing them and records results in meta.json.
 	verify bool
@@ -505,9 +507,9 @@ func (p *pipeline) genOne(ctx context.Context, t *hyrum.Target, idx *hyrum.Histo
 	}
 
 	fmt.Fprintf(os.Stderr, "→ %s ← %s (%s)\n", safeLine(d.Name), safeLine(targetDir), safeLine(d.PURL))
-	runner := p.runner
-	if runner == nil {
-		runner = hyrum.ContainerRunner{Image: p.containerImage, TargetPath: t.Path, DependencyPath: staged.DepDir}
+	runner, err := p.runnerFor(t.Path, staged.DepDir)
+	if err != nil {
+		return err
 	}
 	execution, err := p.runSelectedGeneration(ctx, runner, ws, d.Name, batches)
 	if err != nil {
@@ -548,6 +550,23 @@ func (p *pipeline) genOne(ctx context.Context, t *hyrum.Target, idx *hyrum.Histo
 	}
 	fmt.Printf("%s ← %s: %d file(s) → %s ($%.4f)\n", safeLine(d.Name), safeLine(targetDir), len(written), safeLine(outDir), totalCost)
 	return nil
+}
+
+func (p *pipeline) runnerFor(targetPath, dependencyPath string) (hyrum.Runner, error) { //nolint:ireturn // Selects a Runner implementation.
+	if p.runner != nil {
+		return p.runner, nil
+	}
+	if p.containerRuntime == nil {
+		runtime, err := hyrum.DetectContainerRuntime("")
+		if err != nil {
+			return nil, err
+		}
+		p.containerRuntime = &runtime
+	}
+	return hyrum.ContainerRunner{
+		Runtime: *p.containerRuntime, Image: p.containerImage,
+		TargetPath: targetPath, DependencyPath: dependencyPath,
+	}, nil
 }
 
 func (p *pipeline) runSelectedGeneration(
