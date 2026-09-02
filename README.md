@@ -162,10 +162,14 @@ the target repository. For safety, `out` in an automatically discovered
 target configuration must remain inside that target; an explicitly supplied
 `--config` may select an external output path.
 
-An automatically discovered config cannot select `work`: that value is ignored
-unless the operator supplies the config with `--config`. `--work` is always
-honored. A relative `work` value from an explicit config is rooted at the
-directory containing that file; absolute paths and `~/...` are accepted.
+An automatically discovered config cannot select `backend`, `models`, or
+`work`: those values are ignored unless the operator supplies the config with
+`--config`. This prevents an untrusted checkout from choosing which provider
+credential or paid model Hyrum invokes. Explicit flags are always honored. A
+relative `work` value from an explicit config is rooted at the directory
+containing that file; absolute paths and `~/...` are accepted. Without either,
+reusable state lives under the current user's cache directory in a private
+`hyrum/work` root rather than a shared temporary directory.
 
 Dependency overrides may be keyed by manifest name or full purl; a purl entry
 wins for fields also set by a name entry. `skip: true` removes a dependency
@@ -204,9 +208,11 @@ to individual skills without backend-specific configuration. See
 By default the backend runs on the host, so its CLI (`claude`, `codex`, ...)
 must be on PATH and file-based logins under `~/.claude` or `~/.codex` work.
 `--container default` runs it inside
-`ghcr.io/alpha-omega-security/scrutineer-runner` instead: the image bundles
+the digest-pinned `ghcr.io/alpha-omega-security/scrutineer-runner` image
+instead: the image bundles
 all four backend CLIs plus Node, Python, and Go toolchains. The container has a
-fresh HOME, the target repository mounted read-only, and dropped capabilities,
+fresh HOME, the target repository and reusable dependency checkout mounted
+read-only, and dropped capabilities,
 which is the recommended mode for `corpus --discover` or any target you did
 not author; see [SECURITY.md](SECURITY.md) and
 [threatmodel.md](threatmodel.md). Because HOME is fresh, authentication in
@@ -273,10 +279,13 @@ observed calls and cite the source line or commit each was derived from. With
 `--verify`, supported tests are run in a scratch directory against the
 concrete registry release
 selected for the target's baseline constraint and the dependency's latest
-release. A fourth `hyrum-validate` step then classifies
-latest-version failures as real behaviour changes, over-specific assertions,
-or environment problems, and flags tests whose only assertion is a shape
-check. Per-version results and per-test verdicts land in `meta.json`. See
+release. Verification reports what the ecosystem test runner observed; a
+`PASS` means that no failure was observed, not that the test process supplied
+an authenticated verdict. A non-zero runner exit is always an error even when
+its output contains a passing summary. A fourth `hyrum-validate` step then
+classifies latest-version failures as real behaviour changes, over-specific
+assertions, or environment problems, and flags tests whose only assertion is a
+shape check. Per-version results and per-test verdicts land in `meta.json`. See
 [docs/skills.md](docs/skills.md) for what each step reads and writes.
 
 ## Ecosystems

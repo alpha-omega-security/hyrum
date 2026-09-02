@@ -20,7 +20,8 @@ The generated files are plain `node:test` (or pytest, or `go test`) files
 under `tests/hyrum/<dep>/from_<target>/` with a `meta.json` recording the
 baseline version and generation inputs. The target component uses the package
 name from one root manifest when available. Nested targets add a stable suffix
-from their Git-relative path, so repeated package names keep separate suites.
+from their Git-relative path, so repeated package
+names keep separate suites.
 `gen --target-name <name>` can
 set it explicitly.
 
@@ -42,12 +43,19 @@ on:
       - package-lock.json
 jobs:
   check:
+    permissions:
+      contents: read
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - run: go install github.com/alpha-omega-security/hyrum/cmd/hyrum@d83039d50e33f85051984fc92e069ec499faa1b0
       - run: hyrum check --dep ws@${{ steps.bump.outputs.version }}
 ```
+
+The read-only job permission and non-persisted checkout credential keep the
+repository token out of reach of dependency code executed by the test runner.
 
 `check` installs the candidate version in a scratch package environment and
 runs `tests/hyrum/ws/`, exiting non-zero with the assertion diff when a pinned
@@ -62,6 +70,13 @@ ws@8.21.3: FAIL
     + Buffer(17) [Uint8Array] [52, 116, 101, 115, 116, ...]
     - '4test pre-encoded'
 ```
+
+Here `PASS` means that the test runner reported no failure. Hyrum always treats
+a non-zero runner exit as an error, even if the output also contains a passing
+summary. It cannot authenticate a verdict emitted by a process that also
+contains dependency code, so `PASS` is not proof that a malicious dependency
+executed every assertion; see the B6 residual in
+[`threatmodel.md`](../threatmodel.md).
 
 The diff names the behaviour (`text message payloads as strings`), the source
 in the project that depends on it (the test's comment cites

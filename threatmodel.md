@@ -71,9 +71,11 @@ operator's host
 │   ├── https → registry API, osv.dev, ecosyste.ms         (B1)
 │   ├── git clone → dep repo URL from registry             (B2)
 │   ├── git clone → dependent repo URLs from ecosyste.ms   (B2, corpus only)
-│   ├── workspace/ (staged: usage.json, dep-outline.md,
-│   │               context.json, git-log.txt, changelog,
-│   │               vulns.json, dep/ clone, target symlink)
+│   ├── private user-cache root (0700 by default)
+│   │   ├── dependency checkout (outside the agent workspace)
+│   │   └── workspace/ (staged: usage.json, dep-outline.md,
+│   │                   context.json, git-log.txt, changelog,
+│   │                   vulns.json, dep/target links)
 │   │
 │   ├── agent CLI, host mode                               (B3)
 │   │   cwd = workspace, reads all of the above,
@@ -84,6 +86,7 @@ operator's host
 │   │     --security-opt no-new-privileges --user uid:gid
 │   │     -e HOME=/tmp --tmpfs /tmp
 │   │     -v workspace:/work -v target:/work/target:ro
+│   │     -v dependency:/work/dep:ro
 │   │
 │   ├── WriteFiles(--out, tests.json)                      (B4)
 │   │   paths from LLM output → files under --out
@@ -96,21 +99,23 @@ operator's host
 - **B1** hyrum → registry/OSV/ecosyste.ms. HTTPS via `net/http` default
   client. Responses are JSON-decoded into typed structs; no field is
   interpolated into a shell string.
-- **B2** hyrum → git clone. `clone.Ensure` execs `git` with an argv array; the
-  URL is a single argument. `--` is not currently passed, so a URL beginning
-  `-` could be treated as a flag; see T5.
+- **B2** hyrum → git clone. `clone.Ensure` validates HTTPS URLs and execs
+  `git` with an argv array and `--` before the URL and destination; see T5.
 - **B3** agent CLI → workspace. The backend reads every staged file and has
   its Bash/shell tool enabled, so any text in any staged file may steer what
-  it runs; this boundary is where most of the threats below originate.
+  it runs; this boundary is where most of the threats below originate. Host
+  staging uses rooted atomic replacement, and model-produced artifacts must be
+  regular files before the host reads them.
 - **B4** LLM output → filesystem. `WriteFiles` rejects absolute paths, empty
   paths, and any path containing `..`; everything else is joined under
   `--out`. Target, ecosystem, and dependency names used to construct the
   workspace and output directories must also be clean local paths, so
   manifest values cannot move those directories outside `--work` or `--out`.
-- **B5** container → host. `--cap-drop ALL`, `no-new-privileges`, non-root
-  user, tmpfs HOME, workspace bind-mounted read-write, target bind-mounted
-  read-only. Shared kernel with the host (docker/podman namespace isolation);
-  no seccomp profile beyond the runtime default; no egress filter.
+- **B5** container → host. Digest-pinned runner image, `--cap-drop ALL`,
+  `no-new-privileges`, non-root user, tmpfs HOME, workspace bind-mounted
+  read-write, and target and dependency checkouts bind-mounted read-only.
+  Shared kernel with the host (docker/podman namespace isolation); no seccomp
+  profile beyond the runtime default; no egress filter.
 - **B6** generated tests → host. `--verify` and `check` execute LLM-generated
   test files with the ecosystem's test runner as the operator's uid.
 
@@ -163,19 +168,20 @@ enabled, and the same caution applies.
 `tests.json` from `hyrum-generate` contains `{path, content}` pairs.
 `WriteFilesUnder` rejects any `path` that is absolute, empty, or contains `..`
 as a path element, then writes it through an `os.Root` opened at `--out`.
-Final and intermediate symlinks cannot take the write outside that root.
+Final symlinks are atomically replaced and intermediate symlinks cannot take
+the write outside that root.
 
 An automatically discovered `hyrum.yaml` may configure `out`, but Hyrum
 requires that value and its existing symlink prefixes to resolve inside the
 target. External output paths require an operator-supplied `--config`, making
-that trust decision explicit. Hyrum ignores `work` from an automatically
-discovered config; an external work root requires an operator-supplied
-`--work` or explicit `--config`. Relative values in an explicit config use its
-directory, and absolute or `~` values are honored. Dependency-derived
-workspace paths are confined inside that selected work root, and output paths
-are confined inside their selected output root. Symlinks created or replaced
-after validation remain a time-of-check/time-of-use residual; in container
-mode the target mount is read-only during generation.
+that trust decision explicit. Hyrum ignores `backend`, `models`, and `work`
+from an automatically discovered config; selecting a provider credential,
+paid model, or external work root requires an explicit flag or `--config`.
+Relative values in an explicit config use its directory, and absolute or `~`
+values are honored. Dependency-derived workspace paths are confined inside
+that selected work root, and output paths are confined inside their selected
+output root. In container mode the target and dependency mounts are read-only
+during generation.
 
 ### T4: generated tests execute on the host during --verify (medium; residual)
 
@@ -187,9 +193,21 @@ derived from untrusted input, so T1 injection that reaches `tests.json` as
 step itself was containerised. `check` has the same shape against
 already-committed tests, which the operator has presumably reviewed.
 
-No mitigation is in place. Running `--verify` inside the `--container`
-boundary is the intended fix; until it lands, treat `--verify` on the host
-the same as `--run` on the host.
+Hyrum treats a non-zero test-runner exit as an error even when parsed output
+claims that tests passed. This closes the cheap case where passing text masks
+an ordinary runner failure. `gen --verify` also records baseline and latest
+outcomes, so divergence between the two remains useful regression evidence.
+
+The verdict is not authenticated. Dependency code executes in the same
+process as the test framework and can emit runner-native summaries, events, or
+artifacts, or terminate the process with status zero before assertions run.
+Counts and expected-name inventories are forgeable over the same channel and
+do not change that boundary. Accordingly, `PASS` means only that no failure
+was observed; it is not proof that a malicious dependency executed the suite.
+Running verification in a container would contain its host access but would
+not authenticate an in-process verdict. Until dependency execution and
+assertion evaluation are separated by a trusted protocol, treat verification
+as regression detection rather than a security attestation.
 
 ### T5: crafted dependency name or repository URL reaches a subprocess as a flag (low)
 
@@ -224,6 +242,7 @@ extracting that runner into `alpha-omega-security/harness` for shared use is
 | B3 | registry metadata in `context.json` is unfiltered free text | inherent |
 | B5 | container has no egress allowlist | [harness#7](https://github.com/alpha-omega-security/harness/issues/7) |
 | B6 | `--verify` executes generated code on the host | not yet tracked |
+| B6 | dependency and test framework share a forgeable verdict channel; `PASS` means no failure was observed | T4; inherent until execution and assertion evaluation are isolated |
 
 Without `--container`, restrict `--run` and `--verify` to repositories and
 dependencies you have reason to trust.

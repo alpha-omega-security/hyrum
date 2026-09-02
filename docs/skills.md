@@ -15,8 +15,8 @@ Before any model step runs, `stageContext` and `GatherHistory` write:
 
 | file | source | consumed by |
 |---|---|---|
-| `target/` | symlink to the target repository | usage, generate |
-| `dep/` | full clone of the dependency's source repo (best-effort) | history |
+| `target/` | target repository (host symlink; read-only container mount) | usage, generate |
+| `dep/` | full dependency checkout kept outside the workspace (host symlink; read-only container mount; best-effort) | history, generate |
 | `usage.json` | scoped imports, refs, and configured activation strings over `target/` | usage, generate |
 | `dep-outline.md` | byte-bounded selection from `outline.Pack` of the source tag matching the resolved baseline; absent when no tag matches | usage, generate |
 | `outline-selection.json` | included and omitted outline paths with selection reasons and byte counts | usage, generate, inspection |

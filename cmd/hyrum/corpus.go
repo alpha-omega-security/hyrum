@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,10 +26,10 @@ func cmdCorpus(ctx context.Context, args []string) error {
 	upstream := fs.String("upstream", "", "upstream dependency name as it appears in dependents' manifests (required)")
 	upstreamRepo := fs.String("upstream-repo", "", "upstream repository URL for --discover (default: registry lookup on --upstream purl)")
 	var explicitDeps stringList
-	fs.Var(&explicitDeps, "dependent", "dependent repository URL (repeatable)")
+	fs.Var(&explicitDeps, "dependent", "dependent repository URL (repeatable; use a Git credential helper for private repositories)")
 	discoverN := fs.Int("discover", 0, "auto-discover N dependents via ecosyste.ms (git-pkgs/dependents)")
 	out := fs.String("out", "", "output directory for the aggregated corpus (required)")
-	work := fs.String("work", filepath.Join(os.TempDir(), "hyrum-corpus"), "working directory for clones and skill workspaces")
+	work := fs.String("work", defaultWorkPath("corpus"), "working directory for clones and skill workspaces")
 	backend := fs.String("backend", "claude", "harness backend: "+harness.Names())
 	run := fs.Bool("run", false, "invoke the backend (otherwise stage only)")
 	outlineBytes := fs.Int("outline-bytes", defaultOutlineBytes, "maximum bytes in each dependency outline")
@@ -44,6 +45,16 @@ func cmdCorpus(ctx context.Context, args []string) error {
 	}
 	if *outlineBytes <= 0 {
 		return fmt.Errorf("--outline-bytes must be greater than zero")
+	}
+	if *upstreamRepo != "" {
+		if err := validateRepositoryURL(*upstreamRepo); err != nil {
+			return fmt.Errorf("--upstream-repo: %w", err)
+		}
+	}
+	if !visitedFlags(fs)["work"] {
+		if err := ensurePrivateWorkRoot(*work); err != nil {
+			return err
+		}
 	}
 
 	h, err := harness.ByName(*backend)
@@ -68,19 +79,24 @@ func cmdCorpus(ctx context.Context, args []string) error {
 
 	var corpusErrs []error
 	for _, spec := range specs {
-		display := clone.RedactURL(spec)
-		url, ref := splitDependentSpec(spec)
-		fmt.Fprintf(os.Stderr, "▶ dependent %s\n", display)
-		dir := filepath.Join(*work, "targets", slugify(url))
-		if err := clone.Ensure(ctx, clone.Retry{}, url, dir, ref, true); err != nil {
-			fmt.Fprintf(os.Stderr, "  clone: %v\n", err)
+		repositoryURL, ref := splitDependentSpec(spec)
+		if err := validateRepositoryURL(repositoryURL); err != nil {
+			fmt.Fprintf(os.Stderr, "  dependent rejected: %s\n", safeLine(err.Error()))
+			corpusErrs = append(corpusErrs, err)
+			continue
+		}
+		display := clone.RedactURL(repositoryURL)
+		fmt.Fprintf(os.Stderr, "▶ dependent %s\n", safeLine(display))
+		dir := filepath.Join(*work, "targets", slugify(repositoryURL))
+		if err := clone.Ensure(ctx, clone.Retry{}, repositoryURL, dir, ref, true); err != nil {
+			fmt.Fprintf(os.Stderr, "  clone: %s\n", safeLine(err.Error()))
 			corpusErrs = append(corpusErrs, fmt.Errorf("%s: clone: %w", display, err))
 			continue
 		}
 		// corpus owns this clone (unlike gen's symlinked target), so agent
 		// directive files can be removed before the skill run reads it.
 		if n, err := harness.StripDirectives(dir); err != nil {
-			fmt.Fprintf(os.Stderr, "  strip: %v\n", err)
+			fmt.Fprintf(os.Stderr, "  strip: %s\n", safeLine(err.Error()))
 			corpusErrs = append(corpusErrs, fmt.Errorf("%s: strip: %w", display, err))
 			continue
 		} else if n > 0 {
@@ -88,22 +104,33 @@ func cmdCorpus(ctx context.Context, args []string) error {
 		}
 		t, err := hyrum.Analyze(dir)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "  analyze: %v\n", err)
+			fmt.Fprintf(os.Stderr, "  analyze: %s\n", safeLine(err.Error()))
 			corpusErrs = append(corpusErrs, fmt.Errorf("%s: analyze: %w", display, err))
 			continue
 		}
 		d, ok := findDep(t, *upstream)
 		if !ok {
-			fmt.Fprintf(os.Stderr, "  %s does not use %s; skipping\n", url, *upstream)
+			fmt.Fprintf(os.Stderr, "  %s does not use %s; skipping\n", safeLine(display), safeLine(*upstream))
 			corpusErrs = append(corpusErrs, fmt.Errorf("%s: does not use %s", display, *upstream))
 			continue
 		}
 		if err := p.genAll(ctx, t, []hyrum.Dep{d}); err != nil {
-			fmt.Fprintf(os.Stderr, "  %v\n", err)
+			fmt.Fprintf(os.Stderr, "  %s\n", safeLine(err.Error()))
 			corpusErrs = append(corpusErrs, fmt.Errorf("%s: generate: %w", display, err))
 		}
 	}
 	return errors.Join(corpusErrs...)
+}
+
+func validateRepositoryURL(repositoryURL string) error {
+	parsed, err := url.Parse(repositoryURL)
+	if err != nil {
+		return fmt.Errorf("invalid repository URL")
+	}
+	if parsed.User != nil {
+		return fmt.Errorf("repository URL must not contain embedded credentials; use a Git credential helper")
+	}
+	return nil
 }
 
 // discoverDependents queries ecosyste.ms via git-pkgs/dependents for the
@@ -119,6 +146,9 @@ func discoverDependents(ctx context.Context, rc *registries.Client, upstream, re
 	}
 	if repo == "" {
 		return nil, fmt.Errorf("no repository URL for %s (pass --upstream-repo)", upstream)
+	}
+	if err := validateRepositoryURL(repo); err != nil {
+		return nil, err
 	}
 	ec, err := enrichment.NewEcosystemsClient()
 	if err != nil {
@@ -146,7 +176,11 @@ func discoverDependents(ctx context.Context, rc *registries.Client, upstream, re
 			continue
 		}
 		out = append(out, c.Repository)
-		fmt.Fprintf(os.Stderr, "  discovered %s (score %d)\n", c.Repository, dependents.PopularityScore(c))
+		display := "[invalid repository URL]"
+		if validateRepositoryURL(c.Repository) == nil {
+			display = clone.RedactURL(c.Repository)
+		}
+		fmt.Fprintf(os.Stderr, "  discovered %s (score %d)\n", safeLine(display), dependents.PopularityScore(c))
 		if len(out) >= n {
 			break
 		}

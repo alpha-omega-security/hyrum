@@ -143,8 +143,8 @@ func surfaceSummaryWithOptions(
 	fmt.Fprintln(tw, "DEP\tECOSYSTEM\tVERSION\tSCOPE\tSYMBOLS\tSITES\tPROD\tTEST\tOTHER\tINDEX")
 	for _, r := range rows {
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d\t%d\t%d\t%d\t%d\t%s\n",
-			r.Name, r.Ecosystem, r.Version, r.Scope, r.Symbols, r.Sites,
-			r.ProductionSites, r.TestSites, r.OtherSites, r.Indexer)
+			safeLine(r.Name), safeLine(r.Ecosystem), safeLine(r.Version), safeLine(r.Scope), r.Symbols, r.Sites,
+			r.ProductionSites, r.TestSites, r.OtherSites, safeLine(r.Indexer))
 	}
 	return tw.Flush()
 }
@@ -186,11 +186,11 @@ func surfaceDetailWithOptions(
 	}
 	const contextWidth = 80
 	for _, s := range out {
-		fmt.Printf("# %s (%s) — %d symbols\n", s.Dep, s.Ecosystem, s.UsedCount())
+		fmt.Printf("# %s (%s) — %d symbols\n", safeLine(s.Dep), safeLine(s.Ecosystem), s.UsedCount())
 		for _, sym := range s.Symbols {
-			fmt.Printf("  %s  [%s]  %d site(s)\n", sym.Name, sym.Kind, len(sym.Sites))
+			fmt.Printf("  %s  [%s]  %d site(s)\n", safeLine(sym.Name), safeLine(sym.Kind), len(sym.Sites))
 			for _, site := range sym.Sites {
-				fmt.Printf("    %s:%d  [%s]  %s\n", site.File, site.Line, site.Scope, truncate(site.Context, contextWidth))
+				fmt.Printf("    %s:%d  [%s]  %s\n", safeLine(site.File), site.Line, safeLine(string(site.Scope)), truncate(safeLine(site.Context), contextWidth))
 			}
 		}
 	}
@@ -232,8 +232,9 @@ func findDep(t *hyrum.Target, name string) (hyrum.Dep, bool) {
 }
 
 func truncate(s string, n int) string {
-	if len(s) <= n {
+	runes := []rune(s)
+	if len(runes) <= n {
 		return s
 	}
-	return s[:n-1] + "…"
+	return string(runes[:n-1]) + "…"
 }

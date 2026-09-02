@@ -98,7 +98,7 @@ func checkOneWithRuntime(
 		return false, fmt.Errorf("%s: verification runtime: %w", name, err)
 	}
 
-	fmt.Fprintf(os.Stderr, "→ %s add %s@%s in scratch\n", mgr.Name(), name, version)
+	fmt.Fprintf(os.Stderr, "→ %s add %s@%s in scratch\n", safeLine(mgr.Name()), safeLine(name), safeLine(version))
 	results := hyrum.VerifyMatrix(ctx, mgr, testCommand, scratch, name, files, []string{version})
 	if len(results) != 1 {
 		return false, fmt.Errorf("%s@%s: verification returned %d results", name, version, len(results))
@@ -109,13 +109,22 @@ func checkOneWithRuntime(
 	if !passed {
 		status = "FAIL"
 	}
-	fmt.Printf("%s@%s: %s\n", name, version, status)
-	if result.Error != "" {
-		fmt.Println(indent(result.Error, "  "))
-	} else if result.Output != "" {
-		fmt.Println(indent(result.Output, "  "))
-	}
+	fmt.Printf("%s@%s: %s\n", safeLine(name), safeLine(version), status)
+	printVerificationDetails(result)
 	return passed, nil
+}
+
+func printVerificationDetails(result hyrum.VerifyResult) {
+	if result.Output != "" {
+		if result.Error != "" {
+			fmt.Println(indent(safeLine(result.Error)))
+		}
+		fmt.Println(indent(safeText(result.Output)))
+		return
+	}
+	if result.Error != "" {
+		fmt.Println(indent(safeText(result.Error)))
+	}
 }
 
 func readGeneratedFiles(testDir string) ([]hyrum.GeneratedFile, error) {
@@ -242,10 +251,10 @@ func splitDepSpec(s string) (name, version string) {
 	return s[:at], s[at+1:]
 }
 
-func indent(s, prefix string) string {
+func indent(s string) string {
 	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
 	for i := range lines {
-		lines[i] = prefix + lines[i]
+		lines[i] = "  " + lines[i]
 	}
 	return strings.Join(lines, "\n")
 }

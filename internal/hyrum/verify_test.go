@@ -3,6 +3,8 @@ package hyrum
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -12,6 +14,16 @@ import (
 
 type addErrorManager struct {
 	managers.Manager
+}
+
+type addSuccessManager struct {
+	managers.Manager
+}
+
+func (addSuccessManager) Name() string      { return "test" }
+func (addSuccessManager) Ecosystem() string { return "test" }
+func (addSuccessManager) Add(context.Context, string, managers.AddOptions) (*managers.Result, error) {
+	return &managers.Result{}, nil
 }
 
 func (addErrorManager) Name() string      { return "test" }
@@ -25,6 +37,27 @@ func TestVerifyOneHandlesAddErrorWithoutResult(t *testing.T) {
 	if !strings.Contains(result.Error, "invalid package") {
 		t.Fatalf("verifyOne error = %q", result.Error)
 	}
+}
+
+func TestVerifyOneDoesNotTrustForgedPassOnNonzeroExit(t *testing.T) {
+	tc := func(string, []string) []string {
+		return []string{os.Args[0], "-test.run=TestVerifyForgedPassHelper", "--", "forged-pass"}
+	}
+	result := verifyOne(t.Context(), addSuccessManager{}, tc, t.TempDir(), "example", "1.0.0", nil)
+	if result.Pass != 1 {
+		t.Fatalf("control output was not parsed: %+v", result)
+	}
+	if result.Error == "" {
+		t.Fatalf("nonzero runner exit was reported as a pass: %+v", result)
+	}
+}
+
+func TestVerifyForgedPassHelper(t *testing.T) {
+	if len(os.Args) < 2 || os.Args[len(os.Args)-1] != "forged-pass" {
+		return
+	}
+	fmt.Println("pass 1")
+	os.Exit(1)
 }
 
 func TestParseTestOutputNode(t *testing.T) {

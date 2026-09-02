@@ -31,7 +31,7 @@ func (r *batchingRunner) RunSkill(
 	case "hyrum-history":
 		return &hyrum.RunResult{Output: json.RawMessage(`{"breaks":[]}`), CostUSD: 0.1}, nil
 	case "hyrum-usage":
-		surface, err := readUsageSurface(filepath.Join(ws, "usage.json"))
+		surface, err := readUsageSurface(ws, "usage.json")
 		if err != nil {
 			return nil, err
 		}
@@ -102,7 +102,7 @@ func TestRunBatchedGenerateSkillsMergesOutputsAndMetadata(t *testing.T) {
 		t.Fatalf("costs = total %v, history %v", run.TotalCost, run.HistoryCost)
 	}
 
-	staged, err := readUsageSurface(filepath.Join(ws, "usage.json"))
+	staged, err := readUsageSurface(ws, "usage.json")
 	if err != nil {
 		t.Fatal(err)
 	}

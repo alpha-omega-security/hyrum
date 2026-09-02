@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -167,6 +168,19 @@ type addErrorManager struct {
 	onAdd func(string, managers.AddOptions)
 }
 
+type addSuccessManager struct {
+	managers.Manager
+}
+
+func (addSuccessManager) Name() string      { return "test" }
+func (addSuccessManager) Ecosystem() string { return hyrum.EcoNPM }
+func (addSuccessManager) Init(context.Context) (*managers.Result, error) {
+	return &managers.Result{}, nil
+}
+func (addSuccessManager) Add(context.Context, string, managers.AddOptions) (*managers.Result, error) {
+	return &managers.Result{}, nil
+}
+
 func (addErrorManager) Name() string      { return "test" }
 func (addErrorManager) Ecosystem() string { return hyrum.EcoNPM }
 func (addErrorManager) Init(context.Context) (*managers.Result, error) {
@@ -177,6 +191,61 @@ func (m addErrorManager) Add(_ context.Context, name string, opts managers.AddOp
 		m.onAdd(name, opts)
 	}
 	return nil, errors.New("invalid package")
+}
+
+const assertionDiffMarker = "ASSERTION_DIFF_EXPECTED_VALUE"
+
+func TestCheckOneDisplaysFullFailureOutputAndExitHeader(t *testing.T) {
+	testsRoot := t.TempDir()
+	testDir := filepath.Join(testsRoot, "example")
+	if err := os.Mkdir(testDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(testDir, "example.test.js"), []byte("test"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	target := &hyrum.Target{
+		Path: t.TempDir(),
+		Deps: []hyrum.Dep{{Name: "example", Version: "1.0.0", Ecosystem: hyrum.EcoNPM}},
+	}
+	var factory verificationRuntimeFactory = func(string, string) (managers.Manager, hyrum.TestCommand, error) {
+		command := func(string, []string) []string {
+			return []string{os.Args[0], "-test.run=TestCheckFailureOutputHelper", "--", "long-failure"}
+		}
+		return addSuccessManager{}, command, nil
+	}
+
+	var ok bool
+	output, err := captureStdout(t, func() error {
+		var checkErr error
+		ok, checkErr = checkOneWithRuntime(t.Context(), target, testsRoot, "example", factory)
+		return checkErr
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok {
+		t.Fatal("checkOne reported a failing runner as successful")
+	}
+	if !strings.Contains(output, "exit status 1") {
+		t.Fatalf("runner exit header missing from output: %q", output)
+	}
+	if !strings.Contains(output, assertionDiffMarker) {
+		t.Fatalf("full assertion output was not displayed: %q", output)
+	}
+	if strings.Contains(output, "\x1b") {
+		t.Fatalf("terminal controls were not sanitized: %q", output)
+	}
+}
+
+func TestCheckFailureOutputHelper(*testing.T) {
+	if len(os.Args) < 2 || os.Args[len(os.Args)-1] != "long-failure" {
+		return
+	}
+	fmt.Printf("\x1b[31m%s\x1b[0m\n", assertionDiffMarker)
+	fmt.Print(strings.Repeat("stack frame outside the short error tail\n", 40))
+	fmt.Println("fail 1")
+	os.Exit(1)
 }
 
 func TestCheckOneUsesAndRemovesScratchDirectory(t *testing.T) {
@@ -193,7 +262,7 @@ func TestCheckOneUsesAndRemovesScratchDirectory(t *testing.T) {
 		Deps: []hyrum.Dep{{Name: "example", Version: "1.0.0", Ecosystem: hyrum.EcoNPM}},
 	}
 	var scratch string
-	factory := func(dir, ecosystem string) (managers.Manager, hyrum.TestCommand, error) {
+	var factory verificationRuntimeFactory = func(dir, ecosystem string) (managers.Manager, hyrum.TestCommand, error) {
 		scratch = dir
 		if ecosystem != hyrum.EcoNPM {
 			t.Fatalf("ecosystem = %q, want %q", ecosystem, hyrum.EcoNPM)
@@ -206,12 +275,20 @@ func TestCheckOneUsesAndRemovesScratchDirectory(t *testing.T) {
 		return mgr, func(string, []string) []string { return nil }, nil
 	}
 
-	ok, err := checkOneWithRuntime(t.Context(), target, testsRoot, "example", factory)
+	var ok bool
+	output, err := captureStdout(t, func() error {
+		var checkErr error
+		ok, checkErr = checkOneWithRuntime(t.Context(), target, testsRoot, "example", factory)
+		return checkErr
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if ok {
 		t.Fatal("checkOne reported a failed install as successful")
+	}
+	if !strings.Contains(output, "install example@1.0.0: invalid package") {
+		t.Fatalf("install error fallback missing from output: %q", output)
 	}
 	if scratch == "" || scratch == target.Path {
 		t.Fatalf("scratch = %q, target = %q", scratch, target.Path)

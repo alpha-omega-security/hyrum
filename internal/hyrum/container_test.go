@@ -13,7 +13,7 @@ import (
 
 func TestContainerRunArgs(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "sk-test")
-	r := ContainerRunner{TargetPath: "/repo"}
+	r := ContainerRunner{TargetPath: "/repo", DependencyPath: "/dependency"}
 	h := harness.ClaudeHarness{}
 	args := r.runArgs("/tmp/ws", "img:tag", h)
 	joined := strings.Join(args, " ")
@@ -27,6 +27,7 @@ func TestContainerRunArgs(t *testing.T) {
 		"-v /tmp/ws:/work",
 		"-w /work",
 		"-v /repo:/work/target:ro",
+		"-v /dependency:/work/dep:ro",
 		"-e ANTHROPIC_API_KEY=sk-test",
 		"-- img:tag",
 	} {
@@ -37,6 +38,12 @@ func TestContainerRunArgs(t *testing.T) {
 	// Image is last, after --.
 	if args[len(args)-1] != "img:tag" || args[len(args)-2] != "--" {
 		t.Errorf("image not terminal: %v", args[len(args)-3:])
+	}
+}
+
+func TestDefaultRunnerImageIsDigestPinned(t *testing.T) {
+	if !strings.Contains(DefaultRunnerImage, "@sha256:") || strings.Contains(DefaultRunnerImage, ":latest") {
+		t.Fatalf("default runner image is mutable: %q", DefaultRunnerImage)
 	}
 }
 

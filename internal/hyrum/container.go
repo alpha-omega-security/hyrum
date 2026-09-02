@@ -10,13 +10,13 @@ import (
 	"strings"
 
 	"github.com/alpha-omega-security/harness"
-	"github.com/alpha-omega-security/hyrum/skills"
+	"github.com/alpha-omega-security/hyrum/internal/safefs"
 )
 
 // DefaultRunnerImage bundles the harness backends (claude, codex, opencode),
 // brief, git-pkgs, git, and node/python/go toolchains. It is built from
 // alpha-omega-security/scrutineer/Dockerfile.runner and published per release.
-const DefaultRunnerImage = "ghcr.io/alpha-omega-security/scrutineer-runner:latest"
+const DefaultRunnerImage = "ghcr.io/alpha-omega-security/scrutineer-runner@sha256:c3b6361ccf7a8f440f8ccdf13e88ad996fb3b17846bac032e88a9b405b707baa"
 
 // Runner runs one skill and returns its parsed output. HostRunner and
 // ContainerRunner both satisfy it so the pipeline can switch on a flag.
@@ -46,38 +46,40 @@ type ContainerRunner struct {
 	// set, any existing ws/target symlink is removed before the run so the
 	// mount point is clean.
 	TargetPath string
+	// DependencyPath is the host dependency checkout mounted read-only at
+	// /work/dep. It lives outside the writable agent workspace.
+	DependencyPath string
 	// Emit receives parsed backend events; nil uses defaultEmit.
 	Emit func(harness.Event)
 }
 
 func (r ContainerRunner) RunSkill(ctx context.Context, h harness.Harness, ws, name, outputFile string, opts RunOptions) (*RunResult, error) {
-	skillDir, err := skills.Stage(h, ws, name)
-	if err != nil {
-		return nil, fmt.Errorf("stage skill: %w", err)
-	}
-	if b, err := os.ReadFile(filepath.Join(skillDir, "schema.json")); err == nil {
-		_ = os.WriteFile(filepath.Join(ws, "schema.json"), b, 0o644)
-	}
-	if err := harness.WriteSystemPrompt(h, harness.Job{
-		Workspace:    ws,
-		SystemPrompt: headlessSystemPrompt,
-	}); err != nil {
-		return nil, err
-	}
-
 	absWork, err := filepath.Abs(ws)
 	if err != nil {
 		return nil, err
 	}
-	outputPath, err := prepareOutput(absWork, outputFile)
+	workspace, err := safefs.Open(absWork)
+	if err != nil {
+		return nil, fmt.Errorf("open workspace: %w", err)
+	}
+	defer func() { _ = workspace.Close() }()
+	if err := stageSkillFiles(workspace, h, ws, name); err != nil {
+		return nil, err
+	}
+	hostJob := harness.Job{
+		Workspace:    ws,
+		SystemPrompt: headlessSystemPrompt,
+	}
+	if err := stageSystemPrompt(workspace, h, &hostJob); err != nil {
+		return nil, err
+	}
+
+	outputName, err := prepareOutput(workspace, outputFile)
 	if err != nil {
 		return nil, err
 	}
-	if r.TargetPath != "" {
-		_ = os.Remove(filepath.Join(absWork, TargetSubdir))
-		if err := os.MkdirAll(filepath.Join(absWork, TargetSubdir), 0o755); err != nil {
-			return nil, err
-		}
+	if err := r.prepareMountPoints(workspace); err != nil {
+		return nil, err
 	}
 
 	job := harness.Job{
@@ -124,17 +126,7 @@ func (r ContainerRunner) RunSkill(ctx context.Context, h harness.Harness, ws, na
 	done := make(chan struct{})
 	go func() {
 		h.ParseStream(pr, func(e harness.Event) {
-			switch e.Kind {
-			case harness.KindResult:
-				cost := e.CostUSD
-				if cost == 0 && model != "" {
-					cost = harness.CostFromUsage(model, e.Usage)
-				}
-				res.CostUSD = cost
-				res.Turns = e.Turns
-			case harness.KindSession:
-				res.SessionID = e.SessionID
-			}
+			recordRunEvent(res, model, e)
 			emit(e)
 		})
 		close(done)
@@ -156,7 +148,28 @@ func (r ContainerRunner) RunSkill(ctx context.Context, h harness.Harness, ws, na
 			runErr = fmt.Errorf("%s run: %w: %s", runtime, waitErr, strings.TrimSpace(stderr.String()))
 		}
 	}
-	return finishRun(ctx, res, outputPath, name, outputFile, runErr)
+	return finishRun(ctx, res, workspace, outputName, name, outputFile, runErr)
+}
+
+func (r ContainerRunner) prepareMountPoints(workspace *safefs.Root) error {
+	for _, mount := range []struct {
+		path    string
+		enabled bool
+	}{
+		{path: TargetSubdir, enabled: r.TargetPath != ""},
+		{path: "dep", enabled: r.DependencyPath != ""},
+	} {
+		if !mount.enabled {
+			continue
+		}
+		if err := workspace.RemoveAll(mount.path); err != nil {
+			return err
+		}
+		if err := workspace.MkdirAll(mount.path, 0o755); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // runArgs builds the container-run argv up to and including the image name.
@@ -178,6 +191,10 @@ func (r ContainerRunner) runArgs(absWork, image string, h harness.Harness) []str
 	if r.TargetPath != "" {
 		abs, _ := filepath.Abs(r.TargetPath)
 		args = append(args, "-v", abs+":/work/target:ro")
+	}
+	if r.DependencyPath != "" {
+		abs, _ := filepath.Abs(r.DependencyPath)
+		args = append(args, "-v", abs+":/work/dep:ro")
 	}
 	// Credential and telemetry-suppression env for this backend. harness.Env
 	// returns bare keys for pass-through; expand them from the host env so

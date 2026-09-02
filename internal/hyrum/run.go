@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/alpha-omega-security/harness"
+	"github.com/alpha-omega-security/hyrum/internal/safefs"
+	"github.com/alpha-omega-security/hyrum/internal/terminal"
 	"github.com/alpha-omega-security/hyrum/skills"
 )
 
@@ -93,15 +95,13 @@ func RunSkillWithEmit(ctx context.Context, h harness.Harness, ws, name, outputFi
 }
 
 func runSkill(ctx context.Context, h harness.Harness, ws, name, outputFile string, opts RunOptions, emit func(harness.Event)) (*RunResult, error) {
-	skillDir, err := skills.Stage(h, ws, name)
+	workspace, err := safefs.Open(ws)
 	if err != nil {
-		return nil, fmt.Errorf("stage skill: %w", err)
+		return nil, fmt.Errorf("open workspace: %w", err)
 	}
-	// SKILL.md files reference schema.json at the workspace root while the
-	// backend discovers the skill under SkillDir. Mirror the schema so the
-	// path in the instructions is correct regardless of backend layout.
-	if b, err := os.ReadFile(filepath.Join(skillDir, "schema.json")); err == nil {
-		_ = os.WriteFile(filepath.Join(ws, "schema.json"), b, 0o644)
+	defer func() { _ = workspace.Close() }()
+	if err := stageSkillFiles(workspace, h, ws, name); err != nil {
+		return nil, err
 	}
 
 	job := harness.Job{
@@ -113,7 +113,10 @@ func runSkill(ctx context.Context, h harness.Harness, ws, name, outputFile strin
 		Model:        opts.Model,
 		MaxTurns:     opts.MaxTurns,
 	}
-	outputPath, err := prepareOutput(ws, outputFile)
+	if err := stageSystemPrompt(workspace, h, &job); err != nil {
+		return nil, err
+	}
+	outputName, err := prepareOutput(workspace, outputFile)
 	if err != nil {
 		return nil, err
 	}
@@ -130,46 +133,98 @@ func runSkill(ctx context.Context, h harness.Harness, ws, name, outputFile strin
 
 	res := &RunResult{}
 	wrapped := func(e harness.Event) {
-		switch e.Kind {
-		case harness.KindResult:
-			cost := e.CostUSD
-			if cost == 0 && model != "" {
-				cost = harness.CostFromUsage(model, e.Usage)
-			}
-			res.CostUSD = cost
-			res.Turns = e.Turns
-		case harness.KindSession:
-			res.SessionID = e.SessionID
-		}
+		recordRunEvent(res, model, e)
 		if emit != nil {
 			emit(e)
 		}
 	}
 
 	runErr := harness.Run(ctx, h, job, wrapped)
-	return finishRun(ctx, res, outputPath, name, outputFile, runErr)
+	return finishRun(ctx, res, workspace, outputName, name, outputFile, runErr)
+}
+
+func stageSkillFiles(workspace *safefs.Root, h harness.Harness, ws, name string) error {
+	skillDir, err := skills.Stage(h, ws, name)
+	if err != nil {
+		return fmt.Errorf("stage skill: %w", err)
+	}
+	// SKILL.md files reference schema.json at the workspace root while the
+	// backend discovers the skill under SkillDir. Mirror the schema so the
+	// path in the instructions is correct regardless of backend layout.
+	workspaceAbs, workspaceErr := filepath.Abs(workspace.Path())
+	skillDirAbs, skillErr := filepath.Abs(skillDir)
+	if workspaceErr != nil || skillErr != nil {
+		return nil
+	}
+	schemaRel, err := filepath.Rel(workspaceAbs, filepath.Join(skillDirAbs, "schema.json"))
+	if err != nil || !filepath.IsLocal(schemaRel) {
+		return nil
+	}
+	b, err := workspace.ReadRegular(schemaRel)
+	if err != nil {
+		return nil
+	}
+	if err := workspace.WriteFile("schema.json", b, 0o644); err != nil {
+		return fmt.Errorf("stage schema: %w", err)
+	}
+	return nil
+}
+
+func recordRunEvent(result *RunResult, model string, event harness.Event) {
+	switch event.Kind {
+	case harness.KindResult:
+		cost := event.CostUSD
+		if cost == 0 && model != "" {
+			cost = harness.CostFromUsage(model, event.Usage)
+		}
+		result.CostUSD = cost
+		result.Turns = event.Turns
+	case harness.KindSession:
+		result.SessionID = event.SessionID
+	}
+}
+
+func stageSystemPrompt(workspace *safefs.Root, h harness.Harness, job *harness.Job) error {
+	if strings.TrimSpace(job.SystemPrompt) == "" || h.SystemPromptViaArgs() {
+		return nil
+	}
+	guide := h.GuideFilename()
+	if guide == "" || !filepath.IsLocal(guide) {
+		return fmt.Errorf("harness: invalid guide filename %q", guide)
+	}
+	content := job.SystemPrompt
+	if !strings.HasSuffix(content, "\n") {
+		content += "\n"
+	}
+	if err := workspace.WriteFile(guide, []byte(content), 0o644); err != nil {
+		return fmt.Errorf("harness: write %s: %w", guide, err)
+	}
+	// harness.Run calls WriteSystemPrompt itself. Clearing this field after
+	// safely staging the guide prevents that call from reopening a planted
+	// symlink with os.WriteFile. File-based backends read the staged guide.
+	job.SystemPrompt = ""
+	return nil
 }
 
 // prepareOutput removes the expected artifact before invoking a backend. Skill
 // workspaces are intentionally reusable, so this prevents a failed invocation
 // from appearing successful by leaving an older output file in place.
-func prepareOutput(ws, outputFile string) (string, error) {
+func prepareOutput(workspace *safefs.Root, outputFile string) (string, error) {
 	clean := filepath.Clean(outputFile)
 	if outputFile != clean || clean == "." || clean == ".." || clean != filepath.Base(clean) || filepath.IsAbs(clean) {
 		return "", fmt.Errorf("refusing output path %q", outputFile)
 	}
-	path := filepath.Join(ws, clean)
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+	if err := workspace.Remove(clean); err != nil && !os.IsNotExist(err) {
 		return "", fmt.Errorf("remove stale %s: %w", outputFile, err)
 	}
-	return path, nil
+	return clean, nil
 }
 
 // finishRun reads the artifact written by this invocation. A non-zero backend
 // exit is recoverable only when a fresh, usable JSON artifact exists; otherwise
 // the backend error remains fatal. The backend failure is retained on a
 // successful result so callers do not silently treat a partial run as clean.
-func finishRun(ctx context.Context, res *RunResult, outputPath, skillName, outputFile string, runErr error) (*RunResult, error) {
+func finishRun(ctx context.Context, res *RunResult, workspace *safefs.Root, outputName, skillName, outputFile string, runErr error) (*RunResult, error) {
 	if runErr != nil {
 		var accountErr *harness.AccountError
 		if ctx.Err() != nil || errors.As(runErr, &accountErr) {
@@ -177,7 +232,7 @@ func finishRun(ctx context.Context, res *RunResult, outputPath, skillName, outpu
 		}
 	}
 
-	b, err := os.ReadFile(outputPath)
+	b, err := workspace.ReadRegular(outputName)
 	if err != nil {
 		outputErr := fmt.Errorf("read %s: %w (skill did not write output)", outputFile, err)
 		if runErr != nil {
@@ -264,7 +319,7 @@ func writeFilesUnder(root, dir string, files []GeneratedFile, replace bool) ([]s
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return nil, err
 	}
-	outputRoot, err := os.OpenRoot(root)
+	outputRoot, err := safefs.Open(root)
 	if err != nil {
 		return nil, err
 	}
@@ -307,19 +362,12 @@ func defaultEmit(e harness.Event) {
 	case harness.KindThinking:
 		// suppressed
 	case harness.KindTool:
-		fmt.Fprintf(os.Stderr, "  · %s %s\n", e.Tool, firstLine(e.Text))
+		fmt.Fprintf(os.Stderr, "  · %s %s\n", terminal.SingleLine(e.Tool), terminal.SingleLine(e.Text))
 	case harness.KindText:
-		fmt.Fprintf(os.Stderr, "  %s\n", firstLine(e.Text))
+		fmt.Fprintf(os.Stderr, "  %s\n", terminal.SingleLine(e.Text))
 	case harness.KindError:
-		fmt.Fprintf(os.Stderr, "  ! %s\n", e.Text)
+		fmt.Fprintf(os.Stderr, "  ! %s\n", terminal.SingleLine(e.Text))
 	case harness.KindResult:
 		fmt.Fprintf(os.Stderr, "  = %d turns, $%.4f\n", e.Turns, e.CostUSD)
 	}
-}
-
-func firstLine(s string) string {
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
-		return s[:i]
-	}
-	return s
 }

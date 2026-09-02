@@ -70,7 +70,7 @@ func defaultGenOptions() genOptions {
 	return genOptions{
 		backend:      defaultGenBackend,
 		out:          defaultGenOut,
-		work:         filepath.Join(os.TempDir(), "hyrum"),
+		work:         defaultWorkPath("work"),
 		outlineBytes: defaultOutlineBytes,
 	}
 }
@@ -154,6 +154,11 @@ func cmdGen(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	if !set["work"] && (!set["config"] || cfg.Work == nil) {
+		if err := ensurePrivateWorkRoot(resolved.work); err != nil {
+			return err
+		}
+	}
 
 	selected := selectGenDeps(t, deps, cfg.Deps)
 	if len(selected) == 0 {
@@ -190,7 +195,7 @@ func resolveGenOptions(targetRoot, configPath string, explicitConfig bool, cfg h
 	resolved := defaultGenOptions()
 	resolved.out = outRoot(targetRoot, resolved.out)
 
-	if cfg.Backend != nil {
+	if explicitConfig && cfg.Backend != nil {
 		resolved.backend = *cfg.Backend
 	}
 	if cfg.Out != nil {
@@ -213,7 +218,9 @@ func resolveGenOptions(targetRoot, configPath string, explicitConfig bool, cfg h
 	if cfg.TargetName != nil {
 		resolved.targetName = *cfg.TargetName
 	}
-	resolved.models = cfg.Models
+	if explicitConfig {
+		resolved.models = cfg.Models
+	}
 
 	if set["backend"] {
 		resolved.backend = cli.backend
@@ -423,7 +430,7 @@ func (p *pipeline) genAll(ctx context.Context, t *hyrum.Target, deps []hyrum.Dep
 	for _, d := range deps {
 		if err := p.genOne(ctx, t, idx, d); err != nil {
 			depErr := fmt.Errorf("%s: %w", d.Name, err)
-			fmt.Fprintf(os.Stderr, "  %v\n", depErr)
+			fmt.Fprintf(os.Stderr, "  %s\n", safeLine(depErr.Error()))
 			genErrs = append(genErrs, depErr)
 		}
 	}
@@ -444,7 +451,8 @@ func (p *pipeline) genOne(ctx context.Context, t *hyrum.Target, idx *hyrum.Histo
 	if err := validateRelativePath("dependency name", d.Name); err != nil {
 		return err
 	}
-	ws := filepath.Join(p.work, targetDir, d.Ecosystem, d.Name)
+	wsRel := filepath.Join(targetDir, d.Ecosystem, d.Name)
+	ws := filepath.Join(p.work, wsRel)
 	if !pathWithinResolved(p.work, ws) {
 		return fmt.Errorf("dependency %q resolves outside work root %q", d.Name, p.work)
 	}
@@ -453,16 +461,22 @@ func (p *pipeline) genOne(ctx context.Context, t *hyrum.Target, idx *hyrum.Histo
 	if !pathWithinResolved(p.outRoot, outDir) {
 		return fmt.Errorf("dependency %q resolves outside output root %q", d.Name, p.outRoot)
 	}
-	if err := prepareWorkspace(ws); err != nil {
+	preparedWS, err := prepareWorkspaceUnder(p.work, wsRel)
+	if err != nil {
 		return fmt.Errorf("prepare workspace: %w", err)
 	}
-	staged, err := stageContext(ctx, t, targetDir, d, ws, p.rc, p.usageOptions, p.symbols, p.outlineBytes)
+	ws = preparedWS
+	depCheckout, err := prepareExternalCheckout(p.work, filepath.Join(".deps", d.Ecosystem, d.Name))
+	if err != nil {
+		return fmt.Errorf("prepare dependency checkout: %w", err)
+	}
+	staged, err := stageContext(ctx, t, targetDir, d, ws, depCheckout, p.rc, p.usageOptions, p.symbols, p.outlineBytes)
 	if err != nil {
 		return fmt.Errorf("stage: %w", err)
 	}
 	var batches []*usage.Surface
 	if p.batchingEnabled() {
-		surface, err := readUsageSurface(filepath.Join(ws, "usage.json"))
+		surface, err := readUsageSurface(ws, "usage.json")
 		if err != nil {
 			return fmt.Errorf("read staged usage: %w", err)
 		}
@@ -474,11 +488,11 @@ func (p *pipeline) genOne(ctx context.Context, t *hyrum.Target, idx *hyrum.Histo
 	historyDep := d
 	historyDep.Version = staged.Baseline
 	if err := hyrum.GatherHistory(ctx, idx, historyDep, staged.DepDir, staged.Latest, ws); err != nil {
-		fmt.Fprintf(os.Stderr, "  %s: history: %v\n", d.Name, err)
+		fmt.Fprintf(os.Stderr, "  %s: history: %s\n", safeLine(d.Name), safeLine(err.Error()))
 	}
 	if !p.run {
 		if p.batchingEnabled() {
-			fmt.Printf("staged %s: %d batch(es) under %s; --run executes and merges them\n", d.Name, len(batches), filepath.Join(ws, "batches"))
+			fmt.Printf("staged %s: %d batch(es) under %s; --run executes and merges them\n", safeLine(d.Name), len(batches), safeLine(filepath.Join(ws, "batches")))
 			return nil
 		}
 		last := skillSteps[len(skillSteps)-1]
@@ -486,14 +500,14 @@ func (p *pipeline) genOne(ctx context.Context, t *hyrum.Target, idx *hyrum.Histo
 			Workspace: ws, SrcDir: hyrum.TargetSubdir, SkillName: last.name,
 			OutputFile: last.out, Model: p.models[last.name], MaxTurns: last.maxTurns,
 		}
-		fmt.Printf("staged %s: %s %v\n", d.Name, p.h.Binary(), p.h.Args(job))
+		fmt.Printf("staged %s: %s %s\n", safeLine(d.Name), safeLine(p.h.Binary()), safeLine(fmt.Sprint(p.h.Args(job))))
 		return nil
 	}
 
-	fmt.Fprintf(os.Stderr, "→ %s ← %s (%s)\n", d.Name, targetDir, d.PURL)
+	fmt.Fprintf(os.Stderr, "→ %s ← %s (%s)\n", safeLine(d.Name), safeLine(targetDir), safeLine(d.PURL))
 	runner := p.runner
 	if runner == nil {
-		runner = hyrum.ContainerRunner{Image: p.containerImage, TargetPath: t.Path}
+		runner = hyrum.ContainerRunner{Image: p.containerImage, TargetPath: t.Path, DependencyPath: staged.DepDir}
 	}
 	execution, err := p.runSelectedGeneration(ctx, runner, ws, d.Name, batches)
 	if err != nil {
@@ -517,7 +531,7 @@ func (p *pipeline) genOne(ctx context.Context, t *hyrum.Target, idx *hyrum.Histo
 		meta["verify"] = verify
 		v, cost, recovery, err := p.runValidate(ctx, runner, ws, verify)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "  validate: %v\n", err)
+			fmt.Fprintf(os.Stderr, "  validate: %s\n", safeLine(err.Error()))
 		} else if v != nil {
 			if recovery != "" {
 				recoveredSteps = append(recoveredSteps, "hyrum-validate")
@@ -532,7 +546,7 @@ func (p *pipeline) genOne(ctx context.Context, t *hyrum.Target, idx *hyrum.Histo
 	if err := writeJSONUnder(p.outRoot, outRel, "meta.json", meta); err != nil {
 		return err
 	}
-	fmt.Printf("%s ← %s: %d file(s) → %s ($%.4f)\n", d.Name, targetDir, len(written), outDir, totalCost)
+	fmt.Printf("%s ← %s: %d file(s) → %s ($%.4f)\n", safeLine(d.Name), safeLine(targetDir), len(written), safeLine(outDir), totalCost)
 	return nil
 }
 
@@ -583,23 +597,11 @@ var transientWorkspaceFiles = []string{
 	"schema.json",
 }
 
-var transientWorkspaceDirs = []string{"batches"}
+var transientWorkspaceDirs = []string{"batches", "dep", "verify"}
 
 func prepareWorkspace(ws string) error {
-	if err := os.MkdirAll(ws, 0o755); err != nil {
-		return err
-	}
-	for _, name := range transientWorkspaceFiles {
-		if err := os.Remove(filepath.Join(ws, name)); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("remove stale %s: %w", name, err)
-		}
-	}
-	for _, name := range transientWorkspaceDirs {
-		if err := os.RemoveAll(filepath.Join(ws, name)); err != nil {
-			return fmt.Errorf("remove stale %s: %w", name, err)
-		}
-	}
-	return nil
+	_, err := prepareWorkspaceUnder(filepath.Dir(ws), filepath.Base(ws))
+	return err
 }
 
 func addBackendRecoveries(meta map[string]any, steps []string) {
@@ -645,11 +647,11 @@ func (p *pipeline) runGenerationStep(
 		Model: p.models[step.name], MaxTurns: step.maxTurns,
 	})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "  %s/%s: %v\n", depName, step.name, err)
+		fmt.Fprintf(os.Stderr, "  %s/%s: %s\n", safeLine(depName), safeLine(step.name), safeLine(err.Error()))
 		return nil, err
 	}
 	if result.BackendError != "" {
-		fmt.Fprintf(os.Stderr, "  ! %s/%s: %s\n", depName, step.name, result.BackendError)
+		fmt.Fprintf(os.Stderr, "  ! %s/%s: %s\n", safeLine(depName), safeLine(step.name), safeLine(result.BackendError))
 	}
 	return result, nil
 }
@@ -690,7 +692,7 @@ func (p *pipeline) runValidate(ctx context.Context, runner hyrum.Runner, ws stri
 	if !anyRan(verify) {
 		return nil, 0, "", nil
 	}
-	if err := writeJSON(filepath.Join(ws, "verify.json"), verify); err != nil {
+	if err := writeWorkspaceJSON(ws, "verify.json", verify); err != nil {
 		return nil, 0, "", err
 	}
 	fmt.Fprintf(os.Stderr, "  [hyrum-validate]\n")
@@ -699,7 +701,7 @@ func (p *pipeline) runValidate(ctx context.Context, runner hyrum.Runner, ws stri
 		return nil, 0, "", err
 	}
 	if r.BackendError != "" {
-		fmt.Fprintf(os.Stderr, "  ! hyrum-validate: %s\n", r.BackendError)
+		fmt.Fprintf(os.Stderr, "  ! hyrum-validate: %s\n", safeLine(r.BackendError))
 	}
 	var out hyrum.ValidateResult
 	if err := r.Decode(&out); err != nil {
@@ -728,9 +730,9 @@ func reportVerdicts(vs []hyrum.Verdict) {
 	by := map[string]int{}
 	for _, v := range vs {
 		by[v.Status]++
-		fmt.Fprintf(os.Stderr, "    %s [%s→%s]: %s\n", v.Test, v.Status, v.Action, v.Reasoning)
+		fmt.Fprintf(os.Stderr, "    %s [%s→%s]: %s\n", safeLine(v.Test), safeLine(v.Status), safeLine(v.Action), safeLine(v.Reasoning))
 	}
-	fmt.Fprintf(os.Stderr, "    validate: %d verdict(s) — %v\n", len(vs), by)
+	fmt.Fprintf(os.Stderr, "    validate: %d verdict(s) — %s\n", len(vs), safeLine(fmt.Sprint(by)))
 }
 
 // runVerify installs the dep at baseline and latest in a scratch dir under
@@ -741,8 +743,10 @@ func (p *pipeline) runVerify(ctx context.Context, ws string, d hyrum.Dep, baseli
 		return []hyrum.VerifyResult{{Error: "baseline version is unresolved"}}
 	}
 	scratch := filepath.Join(ws, "verify")
-	_ = os.RemoveAll(scratch)
-	if err := os.MkdirAll(scratch, 0o755); err != nil {
+	if err := removeWorkspacePath(ws, "verify", true); err != nil {
+		return []hyrum.VerifyResult{{Error: err.Error()}}
+	}
+	if err := makeWorkspaceDirectory(ws, "verify"); err != nil {
 		return []hyrum.VerifyResult{{Error: err.Error()}}
 	}
 	mgr, testCommand, err := verificationRuntime(scratch, d.Ecosystem)
@@ -750,13 +754,13 @@ func (p *pipeline) runVerify(ctx context.Context, ws string, d hyrum.Dep, baseli
 		return []hyrum.VerifyResult{{Error: fmt.Sprintf("verification runtime for %s: %v", d.Ecosystem, err)}}
 	}
 	versions := []string{baseline, latest}
-	fmt.Fprintf(os.Stderr, "  [verify] %s at %v\n", d.Name, versions)
+	fmt.Fprintf(os.Stderr, "  [verify] %s at %s\n", safeLine(d.Name), safeLine(fmt.Sprint(versions)))
 	results := hyrum.VerifyMatrix(ctx, mgr, testCommand, scratch, d.Name, files, versions)
 	for _, r := range results {
 		if r.Error != "" {
-			fmt.Fprintf(os.Stderr, "    %s: error: %s\n", r.Version, r.Error)
+			fmt.Fprintf(os.Stderr, "    %s: error: %s\n", safeLine(r.Version), safeLine(r.Error))
 		} else {
-			fmt.Fprintf(os.Stderr, "    %s: %d pass, %d fail %v\n", r.Version, r.Pass, r.Fail, r.Failed)
+			fmt.Fprintf(os.Stderr, "    %s: %d pass, %d fail %s\n", safeLine(r.Version), r.Pass, r.Fail, safeLine(fmt.Sprint(r.Failed)))
 		}
 	}
 	return results
@@ -850,20 +854,15 @@ func stageContext(
 	target string,
 	d hyrum.Dep,
 	ws string,
+	depCheckout string,
 	rc *registries.Client,
 	usageOptions usage.IndexOptions,
 	symbols []string,
 	outlineBytes int,
 ) (staged stagedDependency, err error) {
 	staged.OutlineBudgetBytes = outlineBytes
-	if err := os.MkdirAll(ws, 0o755); err != nil {
-		return staged, err
-	}
-
 	// Target: symlink so the skill sees the real tree without a copy.
-	targetLink := filepath.Join(ws, hyrum.TargetSubdir)
-	_ = os.Remove(targetLink)
-	if err := os.Symlink(t.Path, targetLink); err != nil {
+	if err := linkWorkspaceDirectory(ws, hyrum.TargetSubdir, t.Path); err != nil {
 		return staged, fmt.Errorf("link target: %w", err)
 	}
 
@@ -876,7 +875,7 @@ func stageContext(
 	if err != nil {
 		return staged, fmt.Errorf("usage: %w", err)
 	}
-	if err := writeJSON(filepath.Join(ws, "usage.json"), surf); err != nil {
+	if err := writeWorkspaceJSON(ws, "usage.json", surf); err != nil {
 		return staged, err
 	}
 
@@ -889,6 +888,37 @@ func stageContext(
 	if rerr != nil {
 		staged.BaselineError = fmt.Sprintf("registry metadata: %v", rerr)
 	}
+	meta, repositoryErr := dependencyMetadata(d, target, outlineBytes, registryInfo, rerr, &staged)
+	if err := writeWorkspaceJSON(ws, "context.json", meta); err != nil {
+		return staged, err
+	}
+	if registryInfo.Repository == "" {
+		return staged, nil
+	}
+	if err := stageDependencySource(ctx, d, ws, depCheckout, registryInfo.Repository, repositoryErr, surf, outlineBytes, &staged, meta); err != nil {
+		return staged, err
+	}
+	return staged, nil
+}
+
+func dependencyMetadata(
+	d hyrum.Dep,
+	target string,
+	outlineBytes int,
+	registryInfo registryDependency,
+	registryErr error,
+	staged *stagedDependency,
+) (map[string]any, error) {
+	repositoryDisplay := ""
+	var repositoryErr error
+	if registryInfo.Repository != "" {
+		repositoryErr = validateRepositoryURL(registryInfo.Repository)
+		if repositoryErr == nil {
+			repositoryDisplay = clone.RedactURL(registryInfo.Repository)
+		} else {
+			repositoryDisplay = "[invalid repository URL]"
+		}
+	}
 	meta := map[string]any{
 		"purl":                 d.PURL,
 		"name":                 d.Name,
@@ -896,46 +926,76 @@ func stageContext(
 		"constraint":           d.Version,
 		"version":              staged.Baseline,
 		"baseline":             staged.Baseline,
-		"repo":                 registryInfo.Repository,
+		"repo":                 repositoryDisplay,
 		"latest":               staged.Latest,
 		"target":               target,
 		"outline_budget_bytes": outlineBytes,
 	}
-	if rerr != nil {
-		meta["registry_error"] = rerr.Error()
+	if registryErr != nil {
+		meta["registry_error"] = registryErr.Error()
 	}
 	if staged.BaselineError != "" {
 		meta["baseline_error"] = staged.BaselineError
-		fmt.Fprintf(os.Stderr, "  %s: baseline: %s\n", d.Name, staged.BaselineError)
+		fmt.Fprintf(os.Stderr, "  %s: baseline: %s\n", safeLine(d.Name), safeLine(staged.BaselineError))
 	}
 	if registryInfo.Repository == "" {
 		staged.OutlineError = "dependency repository URL is unavailable"
 		meta["outline_error"] = staged.OutlineError
-		fmt.Fprintf(os.Stderr, "  %s: outline unavailable: %s\n", d.Name, staged.OutlineError)
+		fmt.Fprintf(os.Stderr, "  %s: outline unavailable: %s\n", safeLine(d.Name), safeLine(staged.OutlineError))
 	}
-	if err := writeJSON(filepath.Join(ws, "context.json"), meta); err != nil {
-		return staged, err
+	return meta, repositoryErr
+}
+
+func stageDependencySource(
+	ctx context.Context,
+	d hyrum.Dep,
+	ws, depCheckout, repository string,
+	repositoryErr error,
+	surf *usage.Surface,
+	outlineBytes int,
+	staged *stagedDependency,
+	meta map[string]any,
+) error {
+	if repositoryErr != nil {
+		staged.OutlineError = repositoryErr.Error()
+		meta["outline_error"] = staged.OutlineError
+		if writeErr := writeWorkspaceJSON(ws, "context.json", meta); writeErr != nil {
+			return writeErr
+		}
+		return nil
 	}
-	if registryInfo.Repository == "" {
-		return staged, nil
-	}
-	staged.DepDir = filepath.Join(ws, "dep")
+	staged.DepDir = depCheckout
 	// Full clone: hyrum-history diffs between version tags and reads
 	// History.md at old refs, which a shallow clone cannot serve. The dep
 	// clone is reused across runs via Ensure so the cost is one-time.
 	// The dep clone and everything derived from it is best-effort: a bad
 	// repository URL from the registry (or none) means the skills run with
 	// usage.json and git-log.txt only.
-	if err := clone.Ensure(ctx, clone.Retry{}, registryInfo.Repository, staged.DepDir, "", true); err != nil {
-		fmt.Fprintf(os.Stderr, "  clone %s: %v (continuing without dep source)\n", registryInfo.Repository, err)
+	if err := clone.Ensure(ctx, clone.Retry{}, repository, staged.DepDir, "", true); err != nil {
+		fmt.Fprintf(os.Stderr, "  clone %s: %s (continuing without dep source)\n", safeLine(clone.RedactURL(repository)), safeLine(err.Error()))
 		staged.OutlineError = fmt.Sprintf("clone dependency source: %v", err)
 		meta["outline_error"] = staged.OutlineError
 		staged.DepDir = ""
-		if writeErr := writeJSON(filepath.Join(ws, "context.json"), meta); writeErr != nil {
-			return staged, writeErr
+		if writeErr := writeWorkspaceJSON(ws, "context.json", meta); writeErr != nil {
+			return writeErr
 		}
-		return staged, nil
+		return nil
 	}
+	if err := linkWorkspaceDirectory(ws, "dep", staged.DepDir); err != nil {
+		return fmt.Errorf("link dependency source: %w", err)
+	}
+	return stageDependencyOutline(ctx, d, ws, surf, outlineBytes, staged, meta)
+}
+
+func stageDependencyOutline(
+	ctx context.Context,
+	d hyrum.Dep,
+	ws string,
+	surf *usage.Surface,
+	outlineBytes int,
+	staged *stagedDependency,
+	meta map[string]any,
+) error {
 	// Outline the dependency at the resolved baseline release so
 	// generated tests reference the baseline API rather than symbols added or
 	// changed since. The working tree is restored afterwards so writeChangelog
@@ -944,37 +1004,37 @@ func stageContext(
 	restore, tag, matched := checkoutVersion(ctx, staged.DepDir, staged.Baseline, d.Ecosystem)
 	if !matched {
 		if _, err := harness.StripDirectives(staged.DepDir); err != nil {
-			return staged, fmt.Errorf("strip %s: %w", staged.DepDir, err)
+			return fmt.Errorf("strip %s: %w", staged.DepDir, err)
 		}
 		if staged.Baseline != "" {
 			staged.OutlineError = fmt.Sprintf("no source tag matched resolved baseline %s", staged.Baseline)
-			fmt.Fprintf(os.Stderr, "  %s: outline unavailable: %s\n", d.Name, staged.OutlineError)
+			fmt.Fprintf(os.Stderr, "  %s: outline unavailable: %s\n", safeLine(d.Name), safeLine(staged.OutlineError))
 		} else {
 			staged.OutlineError = "dependency outline unavailable because the baseline version is unresolved"
 		}
 		meta["outline_error"] = staged.OutlineError
-		if err := writeJSON(filepath.Join(ws, "context.json"), meta); err != nil {
-			return staged, err
+		if err := writeWorkspaceJSON(ws, "context.json", meta); err != nil {
+			return err
 		}
-		return staged, nil
+		return nil
 	}
 	staged.OutlineRef = tag
 	meta["outline_ref"] = tag
 	if _, err := harness.StripDirectives(staged.DepDir); err != nil {
 		restore()
-		return staged, fmt.Errorf("strip %s: %w", staged.DepDir, err)
+		return fmt.Errorf("strip %s: %w", staged.DepDir, err)
 	}
 	res, err := outline.Pack(staged.DepDir, outline.Options{Compress: true, Ignore: depOutlineIgnore})
 	restore()
 	if _, serr := harness.StripDirectives(staged.DepDir); serr != nil {
-		return staged, fmt.Errorf("strip %s: %w", staged.DepDir, serr)
+		return fmt.Errorf("strip %s: %w", staged.DepDir, serr)
 	}
 	if err != nil {
-		return staged, fmt.Errorf("outline: %w", err)
+		return fmt.Errorf("outline: %w", err)
 	}
 	selection, err := selectDependencyOutline(res, surf, outlineBytes)
 	if err != nil {
-		return staged, fmt.Errorf("select dependency outline: %w", err)
+		return fmt.Errorf("select dependency outline: %w", err)
 	}
 	staged.OutlineBytes = selection.RenderedBytes
 	staged.OutlineFiles = len(selection.Included)
@@ -983,16 +1043,16 @@ func stageContext(
 	meta["outline_bytes"] = staged.OutlineBytes
 	meta["outline_files"] = staged.OutlineFiles
 	meta["outline_omitted_files"] = staged.OutlineOmittedFiles
-	if err := writeJSON(filepath.Join(ws, "context.json"), meta); err != nil {
-		return staged, err
+	if err := writeWorkspaceJSON(ws, "context.json", meta); err != nil {
+		return err
 	}
-	if err := writeJSON(filepath.Join(ws, outlineSelectionFile), selection); err != nil {
-		return staged, err
+	if err := writeWorkspaceJSON(ws, outlineSelectionFile, selection); err != nil {
+		return err
 	}
-	if err := os.WriteFile(filepath.Join(ws, "dep-outline.md"), selection.contents, 0o644); err != nil {
-		return staged, err
+	if err := writeWorkspaceFile(ws, "dep-outline.md", selection.contents); err != nil {
+		return err
 	}
-	return staged, nil
+	return nil
 }
 
 // checkoutVersion moves dir's working tree to the git tag matching version and
@@ -1163,17 +1223,6 @@ func dependencyConfigFor(dep hyrum.Dep, overrides map[string]hyrumconfig.Depende
 		override.Activations = byPURL.Activations
 	}
 	return override
-}
-
-func writeJSON(path string, v any) error {
-	f, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	enc := json.NewEncoder(f)
-	enc.SetIndent("", "  ")
-	return enc.Encode(v)
 }
 
 func writeJSONUnder(root, dir, name string, v any) error {
