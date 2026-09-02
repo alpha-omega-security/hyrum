@@ -39,22 +39,20 @@ jobs:
           go-version-file: go.mod
           cache: false
 
-      # Restore on every run, but save only on pushes to main. A pull request
-      # reuses main's cache without writing a branch-scoped entry that no other
-      # ref can restore and that evicts the shared cache.
-      - name: Restore Go caches
+      # Restore exact-key module caches on every run, but save only on pushes to main.
+      # A pull request reuses main's cache only while go.sum is unchanged,
+      # without writing a branch-scoped entry that no other ref can restore.
+      # The build cache is intentionally excluded because go mod verify does not
+      # authenticate compiled package archives.
+      - name: Restore Go module cache
         id: go-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          # ~/.cache/go-build is Go's build cache on Linux; ~/Library/Caches/go-build
-          # is its macOS equivalent. Paths that don't exist on a platform are skipped.
-          path: |
-            ~/.cache/go-build
-            ~/Library/Caches/go-build
-            ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ github.job }}-${{ hashFiles('go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-${{ github.job }}-
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-mod-${{ github.job }}-${{ hashFiles('go.sum') }}
+
+      - name: Verify restored Go module cache
+        run: go mod verify
 
       - name: Verify Go modules are tidy
         run: go mod tidy -diff
@@ -68,14 +66,11 @@ jobs:
       - name: Coverage
         run: go tool cover -func=coverage.out | tail -1
 
-      - name: Save Go caches
+      - name: Save Go module cache
         if: github.event_name == 'push' && steps.go-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: |
-            ~/.cache/go-build
-            ~/Library/Caches/go-build
-            ~/go/pkg/mod
+          path: ~/go/pkg/mod
           key: ${{ steps.go-cache.outputs.cache-primary-key }}
 
   lint:
@@ -96,16 +91,15 @@ jobs:
           go-version-file: go.mod
           cache: false
 
-      - name: Restore Go caches
+      - name: Restore Go module cache
         id: go-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ github.job }}-${{ hashFiles('go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-${{ github.job }}-
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-mod-${{ github.job }}-${{ hashFiles('go.sum') }}
+
+      - name: Verify restored Go module cache
+        run: go mod verify
 
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
@@ -113,13 +107,11 @@ jobs:
           version: v2.13.1
           skip-save-cache: ${{ github.event_name != 'push' }}
 
-      - name: Save Go caches
+      - name: Save Go module cache
         if: github.event_name == 'push' && steps.go-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
+          path: ~/go/pkg/mod
           key: ${{ steps.go-cache.outputs.cache-primary-key }}
 
   vuln:
@@ -140,16 +132,15 @@ jobs:
           go-version-file: go.mod
           cache: false
 
-      - name: Restore Go caches
+      - name: Restore Go module cache
         id: go-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ github.job }}-${{ hashFiles('go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-${{ github.job }}-
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-mod-${{ github.job }}-${{ hashFiles('go.sum') }}
+
+      - name: Verify restored Go module cache
+        run: go mod verify
 
       - name: Install govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
@@ -157,13 +148,11 @@ jobs:
       - name: Scan for known vulnerabilities
         run: govulncheck ./...
 
-      - name: Save Go caches
+      - name: Save Go module cache
         if: github.event_name == 'push' && steps.go-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
+          path: ~/go/pkg/mod
           key: ${{ steps.go-cache.outputs.cache-primary-key }}
 
   zizmor:
