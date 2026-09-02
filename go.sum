@@ -19,8 +19,8 @@ github.com/git-pkgs/brief v0.12.0 h1:qeUb0BSMLfjvmez8mIWuZwUTURAB/aRiGriB1C6r20E
 github.com/git-pkgs/brief v0.12.0/go.mod h1:BOtq1uUQ5YEgvOCBZycrT2ROO9EgsIjNM82MhAb0WH8=
 github.com/git-pkgs/changelog v0.2.0 h1:9THaZA38qg24Qpuf/kf01OKduWHaNuanbxPp/GJ7NLU=
 github.com/git-pkgs/changelog v0.2.0/go.mod h1:4R1qfD9+PVbzlRd2h9SRBOYFLtUXI8N+VcDrYpErI90=
-github.com/git-pkgs/clone v0.6.0 h1:UsjHaoZBZsaLLCLLnnNNRmkSdhzsUyDLJTvUo3uulpY=
-github.com/git-pkgs/clone v0.6.0/go.mod h1:nixjE44maKRXbu/dEiunJmHApWgLYp0IR7J2yWaYHv8=
+github.com/git-pkgs/clone v0.7.0 h1:EDdy3Of1WD5yI2vPWYpg4UzL5VGriXh9Q+8yfoe+P0w=
+github.com/git-pkgs/clone v0.7.0/go.mod h1:Dk6k+HGvI8+OR27ijxGtCcHhSIyhGBWShE6S6ie5v0s=
 github.com/git-pkgs/dependents v0.1.0 h1:reRRGSxMSb0hrvgNcEoDPFds0g0hOVqEaD5cZ4+vSEU=
 github.com/git-pkgs/dependents v0.1.0/go.mod h1:SsxtW3lW2gzH8z5dw/NKNPvASWMfyNoDLdN4roMZQ10=
 github.com/git-pkgs/enrichment v0.7.0 h1:LfIzlVArc2p0MONO08ybC5jiHlysfzS3YyZ5ry2d6Lw=
