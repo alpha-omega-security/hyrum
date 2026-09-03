@@ -25,7 +25,7 @@ require (
 require (
 	github.com/BurntSushi/toml v1.6.0 // indirect
 	github.com/apapsch/go-jsonmerge/v2 v2.0.0 // indirect
-	github.com/bazelbuild/buildtools v0.0.0-20260716142318-04cf7de1434f // indirect
+	github.com/bazelbuild/buildtools v0.0.0-20260826221324-7cca172268c7 // indirect
 	github.com/bmatcuk/doublestar/v4 v4.10.0 // indirect
 	github.com/ecosyste-ms/ecosystems-go v0.4.0 // indirect
 	github.com/git-pkgs/gitignore v1.2.0 // indirect
