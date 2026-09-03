@@ -51,15 +51,19 @@ jobs:
         with:
           persist-credentials: false
       - run: go install github.com/alpha-omega-security/hyrum/cmd/hyrum@d83039d50e33f85051984fc92e069ec499faa1b0
-      - run: hyrum check --dep ws@${{ steps.bump.outputs.version }}
+      - name: Check Hyrum's Law compatibility
+        run: |
+          candidate="$(node -p 'const v = require("./package-lock.json").packages["node_modules/ws"].version; if (typeof v !== "string" || !v) throw new Error("no ws version in package-lock.json"); v')"
+          hyrum check --dep "ws@$candidate"
 ```
 
 The read-only job permission and non-persisted checkout credential keep the
 repository token out of reach of dependency code executed by the test runner.
 
-`check` installs the candidate version in a scratch package environment and
-runs `tests/hyrum/ws/`, exiting non-zero with the assertion diff when a pinned
-behaviour has changed. The project's manifest, lockfile, and installed
+The workflow reads the exact candidate version from `package-lock.json` and
+passes it to `check`, which installs it in a scratch package environment and
+runs `tests/hyrum/ws/`. It exits non-zero with the assertion diff when a
+pinned behaviour has changed. The project's manifest, lockfile, and installed
 dependencies remain unchanged:
 
 ```
