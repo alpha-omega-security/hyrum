@@ -6,16 +6,16 @@ toolchain go1.26.6
 
 require (
 	github.com/alpha-omega-security/harness v0.1.12
-	github.com/git-pkgs/brief v0.12.0
+	github.com/git-pkgs/brief v0.12.1
 	github.com/git-pkgs/changelog v0.2.0
-	github.com/git-pkgs/clone v0.7.0
+	github.com/git-pkgs/clone v0.7.1
 	github.com/git-pkgs/dependents v0.1.0
 	github.com/git-pkgs/enrichment v0.7.0
 	github.com/git-pkgs/managers v0.11.0
 	github.com/git-pkgs/manifests v0.10.0
 	github.com/git-pkgs/outline v0.2.1
 	github.com/git-pkgs/provides v0.2.0
-	github.com/git-pkgs/purl v0.1.18
+	github.com/git-pkgs/purl v0.1.19
 	github.com/git-pkgs/registries v0.8.1
 	github.com/git-pkgs/vers v0.6.0
 	github.com/git-pkgs/vulns v0.2.2
