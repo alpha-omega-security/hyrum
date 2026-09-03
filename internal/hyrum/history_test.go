@@ -141,14 +141,7 @@ func TestBuildHistoryIndexMatchesChangedManifestLinesOnly(t *testing.T) {
 		}
 	}
 
-	out := filepath.Join(t.TempDir(), "git-log.txt")
-	if err := idx.WriteGitLog("ws", out); err != nil {
-		t.Fatal(err)
-	}
-	contents, err := os.ReadFile(out)
-	if err != nil {
-		t.Fatal(err)
-	}
+	contents := idx.renderGitLog("ws")
 	if !strings.Contains(string(contents), `-    "ws": "7.4.2",`) || !strings.Contains(string(contents), `+    "ws": "8.0.0",`) {
 		t.Errorf("git-log.txt lacks matching manifest evidence:\n%s", contents)
 	}
