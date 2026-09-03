@@ -1,6 +1,6 @@
 module github.com/alpha-omega-security/hyrum
 
-go 1.26
+go 1.26.0
 
 toolchain go1.26.6
 
@@ -15,7 +15,7 @@ require (
 	github.com/git-pkgs/manifests v0.10.0
 	github.com/git-pkgs/outline v0.2.1
 	github.com/git-pkgs/provides v0.2.0
-	github.com/git-pkgs/purl v0.1.17
+	github.com/git-pkgs/purl v0.1.18
 	github.com/git-pkgs/registries v0.8.1
 	github.com/git-pkgs/vers v0.6.0
 	github.com/git-pkgs/vulns v0.2.2
