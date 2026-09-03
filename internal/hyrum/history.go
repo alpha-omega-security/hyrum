@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -137,13 +136,6 @@ func matchingChanges(changes []string, name string) []string {
 		}
 	}
 	return matches
-}
-
-// WriteGitLog writes the commits for dep from a pre-built index to path in
-// the `SHA date subject / body / manifest paths / matching changes / ---`
-// text format the hyrum-history skill reads.
-func (h *HistoryIndex) WriteGitLog(dep, path string) error {
-	return os.WriteFile(path, h.renderGitLog(dep), 0o644)
 }
 
 func (h *HistoryIndex) renderGitLog(dep string) []byte {
