@@ -1,8 +1,6 @@
 module github.com/alpha-omega-security/hyrum
 
-go 1.26.0
-
-toolchain go1.26.6
+go 1.26.7
 
 require (
 	github.com/alpha-omega-security/harness v0.1.12
@@ -16,7 +14,7 @@ require (
 	github.com/git-pkgs/outline v0.2.1
 	github.com/git-pkgs/provides v0.2.0
 	github.com/git-pkgs/purl v0.1.19
-	github.com/git-pkgs/registries v0.8.1
+	github.com/git-pkgs/registries v0.9.0
 	github.com/git-pkgs/vers v0.6.0
 	github.com/git-pkgs/vulns v0.2.2
 	gopkg.in/yaml.v3 v3.0.1
@@ -42,4 +40,5 @@ require (
 	github.com/package-url/packageurl-go v0.1.7 // indirect
 	github.com/pandatix/go-cvss v0.6.4 // indirect
 	github.com/rogpeppe/go-internal v1.16.0 // indirect
+	go.yaml.in/yaml/v3 v3.0.5 // indirect
 )

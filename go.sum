@@ -45,8 +45,8 @@ github.com/git-pkgs/provides v0.2.0 h1:ZeLFWchkkbJjdRTsYmEUnQOx3t57YviM/JkTR7Wcz
 github.com/git-pkgs/provides v0.2.0/go.mod h1:u+IqEvmKUuGmhVheHSDUIL3WQwdG0cRCu881y1k7XH8=
 github.com/git-pkgs/purl v0.1.19 h1:AT9ReTQjZIqEr+trKhfFJ/YZoh4pwdWsyJKKZWzs23c=
 github.com/git-pkgs/purl v0.1.19/go.mod h1:hthV5mp+Q67HpQ9+LnRLLmsReu5ooyQ5EaJsCGrA8yE=
-github.com/git-pkgs/registries v0.8.1 h1:Yf2FFdARQ1HcdtZfWBYa5OZFwZHzhFYStiz7qbTDDUU=
-github.com/git-pkgs/registries v0.8.1/go.mod h1:5dc3V7rOhAI5755L/bDtjtYV4D5XV4J/4ZtyIXSEs0U=
+github.com/git-pkgs/registries v0.9.0 h1:1JRtO5Oy6ueXYvufJcTWRI1xrZ6x00QUwkKiF18GUuk=
+github.com/git-pkgs/registries v0.9.0/go.mod h1:pw9a841dR0EAGyNfhZKowCHTYN293BLCTzGjHby7cVs=
 github.com/git-pkgs/spdx v0.3.1 h1:58JPY5X9pYpXvnzzZIgehItlBykeOOw52pNc4OBcS+c=
 github.com/git-pkgs/spdx v0.3.1/go.mod h1:cqRoZcvl530s/W+oGNvwjt4ODN8T1W6D/20MUZEFdto=
 github.com/git-pkgs/vers v0.6.0 h1:droJw8+oSyl8/UoDj/96B9ZPggmxJDTl/JeixzfKzSc=
@@ -81,6 +81,8 @@ github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+
 github.com/stretchr/testify v1.3.0/go.mod h1:M5WIy9Dh21IEIfnGCwXGc5bZfKNJtfHm1UVUgZn+9EI=
 github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U=
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
+go.yaml.in/yaml/v3 v3.0.5 h1:N6y/pJk8buWs9NY5ERU2HSMfm+IuD/OtfdAnq6kESPw=
+go.yaml.in/yaml/v3 v3.0.5/go.mod h1:HVTZu1O7/Vkt2N+BFy8Zza+lnLsABggaTM2ZpNIGuKg=
 gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
 gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c h1:Hei/4ADfdWqJk1ZMxUNpqntNwaWcugrBjAiHlqqRiVk=
 gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c/go.mod h1:JHkPIbrfpd72SG/EVd6muEfDQjcINNoR0C8j2r3qZ4Q=
