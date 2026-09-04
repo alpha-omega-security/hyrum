@@ -35,6 +35,7 @@
       "matchManagers": ["gomod"],
       "groupName": "Go modules",
       "minimumReleaseAge": "7 days",
+      "constraintsFiltering": "strict",
       "postUpdateOptions": ["gomodTidy"]
     },
     {
