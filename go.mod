@@ -33,7 +33,7 @@ require (
 	github.com/git-pkgs/magic v0.3.1 // indirect
 	github.com/git-pkgs/packageurl-go v0.3.1 // indirect
 	github.com/git-pkgs/pom v0.1.7 // indirect
-	github.com/git-pkgs/spdx v0.3.1 // indirect
+	github.com/git-pkgs/spdx v0.3.2 // indirect
 	github.com/github/go-spdx/v2 v2.7.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/oapi-codegen/nullable v1.2.0 // indirect
