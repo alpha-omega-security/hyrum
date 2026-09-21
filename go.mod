@@ -16,7 +16,7 @@ require (
 	github.com/git-pkgs/outline v0.2.2
 	github.com/git-pkgs/provides v0.2.1
 	github.com/git-pkgs/purl v0.1.20
-	github.com/git-pkgs/registries v0.9.1
+	github.com/git-pkgs/registries v0.9.2
 	github.com/git-pkgs/vers v0.7.1
 	github.com/git-pkgs/vulns v0.2.3
 	go.yaml.in/yaml/v3 v3.0.5
