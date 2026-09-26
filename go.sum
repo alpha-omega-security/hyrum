@@ -29,8 +29,8 @@ github.com/git-pkgs/gitignore v1.3.0 h1:/lcTRp3QYzZDG1CyCLBZO2gxMb6oQWC5EnttSQg4
 github.com/git-pkgs/gitignore v1.3.0/go.mod h1:zleLGZ4PhQrUXrJSsVQWKoeEllEjJH49+DjyKpzIFPM=
 github.com/git-pkgs/licensecheck v0.4.1 h1:b5ilmpIpgeeewBFjdhJ4W7jvwPIFsYQ7ujZma7sli6k=
 github.com/git-pkgs/licensecheck v0.4.1/go.mod h1:cfFO7yHHPeuXsoODHBWyevajH2yWcbfkIFELyG3ZpU0=
-github.com/git-pkgs/magic v0.3.1 h1:UzjFRyEwJITA/JgznjmIM4VwuBszD2K4Q8XHgkgL+DM=
-github.com/git-pkgs/magic v0.3.1/go.mod h1:SXOqcsNmbmpZjJZHEEWnwxprbsFvpwWgTAZrgXp4Jm4=
+github.com/git-pkgs/magic v0.4.0 h1:oag0YiKuWOIIKWTKEjS47HYydGawUlfQiU96TwAqFyM=
+github.com/git-pkgs/magic v0.4.0/go.mod h1:SXOqcsNmbmpZjJZHEEWnwxprbsFvpwWgTAZrgXp4Jm4=
 github.com/git-pkgs/managers v0.12.0 h1:Ex0fZ7hOzoxzXYLmY5ghxqel6jAltaehuGOcPFeQz4U=
 github.com/git-pkgs/managers v0.12.0/go.mod h1:gWk/V63R12skgcTmVsYgED/kxlk2MERS2iWMYKBrJeM=
 github.com/git-pkgs/manifests v0.12.2 h1:8/8eyc7Z6xwWC3S/bDKKRAFKE2hLuHAN5Sc1Dt1h+UY=

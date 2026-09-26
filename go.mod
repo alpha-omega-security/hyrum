@@ -30,7 +30,7 @@ require (
 	github.com/ecosyste-ms/ecosystems-go v0.4.0 // indirect
 	github.com/git-pkgs/gitignore v1.3.0 // indirect
 	github.com/git-pkgs/licensecheck v0.4.1 // indirect
-	github.com/git-pkgs/magic v0.3.1 // indirect
+	github.com/git-pkgs/magic v0.4.0 // indirect
 	github.com/git-pkgs/packageurl-go v0.3.1 // indirect
 	github.com/git-pkgs/pom v0.1.7 // indirect
 	github.com/git-pkgs/spdx v0.3.2 // indirect
