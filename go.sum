@@ -19,8 +19,8 @@ github.com/git-pkgs/brief v0.13.0 h1:mB7dF9cT8eA+GYGZQpEzaSiggkarMyzYzyA1Qn5Wrp0
 github.com/git-pkgs/brief v0.13.0/go.mod h1:4qGX/8bbsdpxnsVtyse7Y3DEHEqNVfTlummtA/gHnRs=
 github.com/git-pkgs/changelog v0.2.1 h1:xQ6j4Zg3/JJ8zevD/eG7ff7vhLRALN9hTri5UZivIIs=
 github.com/git-pkgs/changelog v0.2.1/go.mod h1:mKDtTTEk6UucEH98JiqowF+bIDfL6QTxH0pfO5j1UNE=
-github.com/git-pkgs/clone v0.7.4 h1:1ruZiN9aE2gn93fQyOL81X/R0yD+iD5OExnLRvUiEOg=
-github.com/git-pkgs/clone v0.7.4/go.mod h1:AzlK7H7mgTm016cTyePUDCyqLP5KRXqKgOyTsm+KJ3s=
+github.com/git-pkgs/clone v0.7.5 h1:4wPOTqdYbCooV4MldaIkQxJIa+Z3rJkVFMXJCWNw19c=
+github.com/git-pkgs/clone v0.7.5/go.mod h1:M1WCGotU8+AFYY4xCiF+m6m6VGRQwdSIlMEVeiMnWZE=
 github.com/git-pkgs/dependents v0.2.0 h1:bWk/BiIOnNpQuYP/SEIEyoJCSCARum5hLpHVwm2P5E0=
 github.com/git-pkgs/dependents v0.2.0/go.mod h1:Tvl5hQN8RJ6wtl0wtqhd6VlaYmh4tNyUInpkDDfGjug=
 github.com/git-pkgs/enrichment v0.7.1 h1:8PRYE7gaB8y4M5wnRw/ymNDk0uOHtbQ8CEE7hF09Bv0=
@@ -35,8 +35,8 @@ github.com/git-pkgs/managers v0.12.0 h1:Ex0fZ7hOzoxzXYLmY5ghxqel6jAltaehuGOcPFeQ
 github.com/git-pkgs/managers v0.12.0/go.mod h1:gWk/V63R12skgcTmVsYgED/kxlk2MERS2iWMYKBrJeM=
 github.com/git-pkgs/manifests v0.12.2 h1:8/8eyc7Z6xwWC3S/bDKKRAFKE2hLuHAN5Sc1Dt1h+UY=
 github.com/git-pkgs/manifests v0.12.2/go.mod h1:fCgHIUuGunqJ4do1I8fOXU2IlXvaVMVkD5Vhv03+CNA=
-github.com/git-pkgs/outline v0.2.2 h1:t415r8dgJg6+PedRfeBf1KdaVTpTTJ50XASm7PbEExM=
-github.com/git-pkgs/outline v0.2.2/go.mod h1:ys/wKEppQrSP24WvlnSOBA/EkNp3H3c/oL5C6DVQvF4=
+github.com/git-pkgs/outline v0.2.3 h1:sTCk4pjEwASQ7wYmqPBQLXMcPxZDEx9/VlmjtcGLd+Q=
+github.com/git-pkgs/outline v0.2.3/go.mod h1:lHC7bzvHlXAdsuQZODQ63+wCVkmhk4D7z/1r8YRRuok=
 github.com/git-pkgs/packageurl-go v0.3.1 h1:WM3RBABQZLaRBxgKyYughc3cVBE8KyQxbSC6Jt5ak7M=
 github.com/git-pkgs/packageurl-go v0.3.1/go.mod h1:rcIxiG37BlQLB6FZfgdj9Fm7yjhRQd3l+5o7J0QPAk4=
 github.com/git-pkgs/pom v0.1.7 h1:4yKdtw6eyShtjul6bcZdyz7yLQ+jdrYeYkKbskDGi4c=
@@ -66,8 +66,8 @@ github.com/oapi-codegen/nullable v1.2.0 h1:VflFkDW980KhBPiFF7nWSyjg+r4Obqj8lXipV
 github.com/oapi-codegen/nullable v1.2.0/go.mod h1:KUZ3vUzkmEKY90ksAmit2+5juDIhIZhfDl+0PwOQlFY=
 github.com/oapi-codegen/runtime v1.7.0 h1:t7358VYPvNbWJ9gdAkIK/smVeHpBf6yp8VTsaZsb/7k=
 github.com/oapi-codegen/runtime v1.7.0/go.mod h1:GwV7hC2hviaMzj+ITfHVRESK5J2W/GefVwIND/bMGvU=
-github.com/odvcencio/gotreesitter v0.51.0 h1:tSAcoC1wGyCIOgXF5BgwjiTgA+UW8jW2Lb15wDyXRWk=
-github.com/odvcencio/gotreesitter v0.51.0/go.mod h1:hBVkghd0paaYAVwd2087vfwdeU984bQbMo9LvpE0moo=
+github.com/odvcencio/gotreesitter v0.53.0 h1:VWoixJYMb01xde2BSXejzMmvLagj8B01sOSqNUUqsfA=
+github.com/odvcencio/gotreesitter v0.53.0/go.mod h1:hBVkghd0paaYAVwd2087vfwdeU984bQbMo9LvpE0moo=
 github.com/package-url/packageurl-go v0.1.7 h1:iFWg6tzAjLA6F/qX3M5nZaiMHJgc+p2zxVyr/fY+sZY=
 github.com/package-url/packageurl-go v0.1.7/go.mod h1:nKAWB8E6uk1MHqiS/lQb9pYBGH2+mdJ2PJc2s50dQY0=
 github.com/pandatix/go-cvss v0.6.4 h1:9w2RCO/Q4UTiJyEgpCHRiVc6CfrsFEnkoX+OtATqKio=
