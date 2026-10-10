@@ -2,7 +2,7 @@ module github.com/alpha-omega-security/hyrum
 
 go 1.26.7
 
-toolchain go1.27.1
+toolchain go1.27.2
 
 require (
 	github.com/alpha-omega-security/harness v0.1.15
