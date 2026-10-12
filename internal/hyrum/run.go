@@ -174,11 +174,11 @@ func recordRunEvent(result *RunResult, model string, event harness.Event) {
 	switch event.Kind {
 	case harness.KindResult:
 		cost := event.CostUSD
-		if cost == 0 && model != "" {
+		if cost == 0 && event.SessionCostUSD == 0 && model != "" {
 			cost = harness.CostFromUsage(model, event.Usage)
 		}
-		result.CostUSD = cost
-		result.Turns = event.Turns
+		result.CostUSD += cost
+		result.Turns += event.Turns
 	case harness.KindSession:
 		result.SessionID = event.SessionID
 	}
