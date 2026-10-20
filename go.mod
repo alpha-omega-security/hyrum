@@ -6,7 +6,7 @@ toolchain go1.27.2
 
 require (
 	github.com/alpha-omega-security/harness v0.1.16
-	github.com/git-pkgs/brief v0.14.0
+	github.com/git-pkgs/brief v0.14.1
 	github.com/git-pkgs/changelog v0.2.1
 	github.com/git-pkgs/clone v0.7.5
 	github.com/git-pkgs/dependents v0.2.0
@@ -28,6 +28,7 @@ require (
 	github.com/bazelbuild/buildtools v0.0.0-20260904073137-eaa4d125b423 // indirect
 	github.com/bmatcuk/doublestar/v4 v4.10.2 // indirect
 	github.com/ecosyste-ms/ecosystems-go v0.5.0 // indirect
+	github.com/git-pkgs/bibtex v0.1.0 // indirect
 	github.com/git-pkgs/citation v0.1.0 // indirect
 	github.com/git-pkgs/codemeta v0.3.0 // indirect
 	github.com/git-pkgs/gitignore v1.3.0 // indirect
