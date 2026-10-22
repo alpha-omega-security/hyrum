@@ -40,6 +40,47 @@ func TestSurfaceRejectsMissingExplicitConfig(t *testing.T) {
 	}
 }
 
+func TestSurfaceRubyImportsAndConstants(t *testing.T) {
+	target := t.TempDir()
+	files := map[string]string{
+		"Gemfile": "source 'https://rubygems.org'\ngem 'octokit'\n",
+		"app.rb": "require 'octokit/client'\n" +
+			"client = Octokit::Client.new(token: token)\n" +
+			"Octokit.configure { |c| c.api = api }\n" +
+			"MyOctokit::Client.new\n",
+	}
+	for name, body := range files {
+		if err := os.WriteFile(filepath.Join(target, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	output, err := captureStdout(t, func() error {
+		return cmdSurface(t.Context(), []string{"--dep", "octokit", "--json", target})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var surfaces []*usage.Surface
+	if err := json.Unmarshal([]byte(output), &surfaces); err != nil {
+		t.Fatalf("decode surface output: %v\n%s", err, output)
+	}
+	if len(surfaces) != 1 || surfaces[0].PURL != "pkg:gem/octokit" {
+		t.Fatalf("surfaces = %+v", surfaces)
+	}
+	sites := map[string]int{}
+	for _, symbol := range surfaces[0].Symbols {
+		sites[symbol.Name] = len(symbol.Sites)
+	}
+	for _, name := range []string{"octokit/client", "Octokit.Client", "Octokit.configure"} {
+		if sites[name] != 1 {
+			t.Errorf("%s sites = %d, want 1: %s", name, sites[name], output)
+		}
+	}
+	if sites["MyOctokit.Client"] != 0 {
+		t.Errorf("unrelated constant included: %s", output)
+	}
+}
+
 func TestSurfaceKeepsImportAndActivationKindsSeparate(t *testing.T) {
 	target := t.TempDir()
 	files := map[string]string{

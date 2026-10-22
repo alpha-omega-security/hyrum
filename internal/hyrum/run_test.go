@@ -73,7 +73,7 @@ func TestRunSkillWritesFiles(t *testing.T) {
 	body := `{"files":[{"path":"test_a.js","content":"// generated\n"}],"notes":"ok"}`
 	h := shHarness{payload: body}
 
-	res, err := RunSkillWithEmit(context.Background(), h, ws, "hyrum-generate", "tests.json", func(harness.Event) {})
+	res, err := (HostRunner{}).RunSkill(context.Background(), h, ws, "hyrum-generate", "tests.json", RunOptions{})
 	if err != nil {
 		t.Fatalf("RunSkill: %v", err)
 	}
@@ -118,8 +118,8 @@ func TestRunSkillWritesFiles(t *testing.T) {
 func TestRunSkillPassesConfiguredModel(t *testing.T) {
 	ws := t.TempDir()
 	h := &recordingHarness{shHarness: shHarness{payload: `{"files":[]}`}}
-	if _, err := RunSkillWithOptions(context.Background(), h, ws, "hyrum-generate", "tests.json", RunOptions{Model: "claude-opus-4-6"}); err != nil {
-		t.Fatalf("RunSkillWithOptions: %v", err)
+	if _, err := (HostRunner{}).RunSkill(context.Background(), h, ws, "hyrum-generate", "tests.json", RunOptions{Model: "claude-opus-4-6"}); err != nil {
+		t.Fatalf("HostRunner.RunSkill: %v", err)
 	}
 	if h.model != "claude-opus-4-6" {
 		t.Fatalf("model = %q", h.model)
@@ -130,7 +130,7 @@ func TestRunSkillDecodeValidate(t *testing.T) {
 	ws := t.TempDir()
 	body := `{"verdicts":[{"test":"t","status":"real_break","action":"keep","reasoning":"r"}],"notes":"n"}`
 	h := shHarness{payload: body}
-	res, err := RunSkillWithEmit(context.Background(), h, ws, "hyrum-validate", "verdict.json", func(harness.Event) {})
+	res, err := (HostRunner{}).RunSkill(context.Background(), h, ws, "hyrum-validate", "verdict.json", RunOptions{})
 	if err != nil {
 		t.Fatalf("RunSkill: %v", err)
 	}
@@ -151,7 +151,7 @@ func TestRunSkillDecodeValidate(t *testing.T) {
 func TestRunSkillInvalidJSON(t *testing.T) {
 	ws := t.TempDir()
 	h := shHarness{payload: "not json"}
-	if _, err := RunSkillWithEmit(context.Background(), h, ws, "hyrum-generate", "tests.json", nil); err == nil {
+	if _, err := (HostRunner{}).RunSkill(context.Background(), h, ws, "hyrum-generate", "tests.json", RunOptions{}); err == nil {
 		t.Fatal("want error on invalid JSON output")
 	}
 }
@@ -160,7 +160,7 @@ func TestRunSkillBackendFailureWithFreshOutputRecovers(t *testing.T) {
 	ws := t.TempDir()
 	body := `{"files":[{"path":"test_recovered.js","content":"// recovered\n"}]}`
 	h := shHarness{payload: body, exit: 1}
-	res, err := RunSkillWithEmit(context.Background(), h, ws, "hyrum-generate", "tests.json", nil)
+	res, err := (HostRunner{}).RunSkill(context.Background(), h, ws, "hyrum-generate", "tests.json", RunOptions{})
 	if err != nil {
 		t.Fatalf("fresh valid output should survive backend failure: %v", err)
 	}
@@ -179,7 +179,7 @@ func TestRunSkillBackendFailureWithFreshOutputRecovers(t *testing.T) {
 func TestRunSkillBackendFailureWithoutOutputFails(t *testing.T) {
 	ws := t.TempDir()
 	h := shHarness{exit: 1, noWrite: true}
-	if _, err := RunSkillWithEmit(context.Background(), h, ws, "hyrum-generate", "tests.json", nil); err == nil {
+	if _, err := (HostRunner{}).RunSkill(context.Background(), h, ws, "hyrum-generate", "tests.json", RunOptions{}); err == nil {
 		t.Fatal("want error when backend fails without output")
 	}
 }
@@ -191,7 +191,7 @@ func TestRunSkillBackendFailureDoesNotReuseStaleOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := shHarness{exit: 1, noWrite: true}
-	if _, err := RunSkillWithEmit(context.Background(), h, ws, "hyrum-generate", "tests.json", nil); err == nil {
+	if _, err := (HostRunner{}).RunSkill(context.Background(), h, ws, "hyrum-generate", "tests.json", RunOptions{}); err == nil {
 		t.Fatal("want error rather than stale output")
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
@@ -202,7 +202,7 @@ func TestRunSkillBackendFailureDoesNotReuseStaleOutput(t *testing.T) {
 func TestRunSkillBackendFailureWithInvalidOutputFails(t *testing.T) {
 	ws := t.TempDir()
 	h := shHarness{payload: "not json", exit: 1}
-	if _, err := RunSkillWithEmit(context.Background(), h, ws, "hyrum-generate", "tests.json", nil); err == nil {
+	if _, err := (HostRunner{}).RunSkill(context.Background(), h, ws, "hyrum-generate", "tests.json", RunOptions{}); err == nil {
 		t.Fatal("want error when backend fails with invalid output")
 	}
 }
@@ -212,7 +212,7 @@ func TestRunSkillBackendFailureWithEmptyGenerateOutputFails(t *testing.T) {
 		t.Run(payload, func(t *testing.T) {
 			ws := t.TempDir()
 			h := shHarness{payload: payload, exit: 1}
-			if _, err := RunSkillWithEmit(context.Background(), h, ws, "hyrum-generate", "tests.json", nil); err == nil {
+			if _, err := (HostRunner{}).RunSkill(context.Background(), h, ws, "hyrum-generate", "tests.json", RunOptions{}); err == nil {
 				t.Fatal("want error when failed backend writes no generated files")
 			}
 		})
@@ -222,7 +222,7 @@ func TestRunSkillBackendFailureWithEmptyGenerateOutputFails(t *testing.T) {
 func TestRunSkillBackendFailureWithRenamedEmptyGenerateOutputFails(t *testing.T) {
 	ws := t.TempDir()
 	h := shHarness{payload: `{"files":[]}`, exit: 1}
-	if _, err := RunSkillWithEmit(context.Background(), h, ws, "hyrum-generate", "generated.json", nil); err == nil {
+	if _, err := (HostRunner{}).RunSkill(context.Background(), h, ws, "hyrum-generate", "generated.json", RunOptions{}); err == nil {
 		t.Fatal("want generate recovery policy to be independent of output filename")
 	}
 }
@@ -232,7 +232,7 @@ func TestRunSkillBackendFailureWithEmptyValidateOutputFails(t *testing.T) {
 		t.Run(payload, func(t *testing.T) {
 			ws := t.TempDir()
 			h := shHarness{payload: payload, exit: 1}
-			if _, err := RunSkillWithEmit(context.Background(), h, ws, "hyrum-validate", "verdict.json", nil); err == nil {
+			if _, err := (HostRunner{}).RunSkill(context.Background(), h, ws, "hyrum-validate", "verdict.json", RunOptions{}); err == nil {
 				t.Fatal("want error when failed validation backend writes no verdicts")
 			}
 		})
@@ -243,7 +243,7 @@ func TestRunSkillBackendFailureWithValidateVerdictRecovers(t *testing.T) {
 	ws := t.TempDir()
 	body := `{"verdicts":[{"test":"t","status":"weak","action":"strengthen","reasoning":"r"}]}`
 	h := shHarness{payload: body, exit: 1}
-	res, err := RunSkillWithEmit(context.Background(), h, ws, "hyrum-validate", "verdict.json", nil)
+	res, err := (HostRunner{}).RunSkill(context.Background(), h, ws, "hyrum-validate", "verdict.json", RunOptions{})
 	if err != nil {
 		t.Fatalf("usable validate output should survive backend failure: %v", err)
 	}
@@ -266,7 +266,7 @@ func TestRunSkillCancelledRunIsFatal(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
-	if _, err := RunSkillWithEmit(ctx, h, ws, "hyrum-generate", "tests.json", nil); err == nil {
+	if _, err := (HostRunner{}).RunSkill(ctx, h, ws, "hyrum-generate", "tests.json", RunOptions{}); err == nil {
 		t.Fatal("want cancellation to remain fatal despite fresh output")
 	}
 }
@@ -276,7 +276,7 @@ func TestRunSkillAccountErrorIsFatal(t *testing.T) {
 	body := `{"files":[{"path":"test_partial.js","content":"// partial\n"}]}`
 	h := shHarness{payload: body, stderr: "Credit balance is too low", exit: 1}
 
-	_, err := RunSkillWithEmit(context.Background(), h, ws, "hyrum-generate", "tests.json", nil)
+	_, err := (HostRunner{}).RunSkill(context.Background(), h, ws, "hyrum-generate", "tests.json", RunOptions{})
 	var accountErr *harness.AccountError
 	if !errors.As(err, &accountErr) {
 		t.Fatalf("want typed account error, got %v", err)
@@ -314,7 +314,7 @@ func TestPrepareOutputRejectsSymlinkedDirectory(t *testing.T) {
 func TestRunSkillMissingOutput(t *testing.T) {
 	ws := t.TempDir()
 	h := shHarness{noWrite: true}
-	if _, err := RunSkillWithEmit(context.Background(), h, ws, "hyrum-generate", "tests.json", nil); err == nil {
+	if _, err := (HostRunner{}).RunSkill(context.Background(), h, ws, "hyrum-generate", "tests.json", RunOptions{}); err == nil {
 		t.Fatal("want error when tests.json not written")
 	}
 }
@@ -339,7 +339,7 @@ func TestRunSkillReplacesPlantedWorkspaceSymlinks(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := RunSkillWithEmit(t.Context(), h, ws, "hyrum-generate", "tests.json", nil); err != nil {
+	if _, err := (HostRunner{}).RunSkill(t.Context(), h, ws, "hyrum-generate", "tests.json", RunOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := os.ReadFile(victim); string(got) != "keep" {
@@ -359,7 +359,7 @@ func TestRunSkillRejectsModelOutputSymlink(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := outputSymlinkHarness{shHarness: shHarness{}, target: victim}
-	if _, err := RunSkillWithEmit(t.Context(), h, ws, "hyrum-generate", "tests.json", nil); err == nil {
+	if _, err := (HostRunner{}).RunSkill(t.Context(), h, ws, "hyrum-generate", "tests.json", RunOptions{}); err == nil {
 		t.Fatal("model-produced output symlink was accepted")
 	}
 }

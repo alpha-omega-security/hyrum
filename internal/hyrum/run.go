@@ -76,22 +76,9 @@ func (r *RunResult) Decode(v any) error {
 	return json.Unmarshal(r.Output, v)
 }
 
-// RunSkill stages the named skill into ws, invokes backend h with harness.Run,
-// and reads back the JSON output file. Events are printed to stderr as a
-// simple progress log; a caller wanting structured events can pass its own
-// emit via RunSkillWithEmit.
-func RunSkill(ctx context.Context, h harness.Harness, ws, name, outputFile string) (*RunResult, error) {
-	return RunSkillWithOptions(ctx, h, ws, name, outputFile, RunOptions{})
-}
-
-// RunSkillWithOptions is RunSkill with backend-neutral invocation settings.
+// RunSkillWithOptions stages a skill, invokes the backend, and reads its JSON output.
 func RunSkillWithOptions(ctx context.Context, h harness.Harness, ws, name, outputFile string, opts RunOptions) (*RunResult, error) {
 	return runSkill(ctx, h, ws, name, outputFile, opts, defaultEmit)
-}
-
-// RunSkillWithEmit is RunSkill with a caller-provided event sink.
-func RunSkillWithEmit(ctx context.Context, h harness.Harness, ws, name, outputFile string, emit func(harness.Event)) (*RunResult, error) {
-	return runSkill(ctx, h, ws, name, outputFile, RunOptions{}, emit)
 }
 
 func runSkill(ctx context.Context, h harness.Harness, ws, name, outputFile string, opts RunOptions, emit func(harness.Event)) (*RunResult, error) {
