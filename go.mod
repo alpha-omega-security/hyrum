@@ -6,7 +6,7 @@ toolchain go1.27.3
 
 require (
 	github.com/alpha-omega-security/harness v0.1.16
-	github.com/git-pkgs/brief v0.14.1
+	github.com/git-pkgs/brief v0.14.2
 	github.com/git-pkgs/changelog v0.2.1
 	github.com/git-pkgs/clone v0.7.5
 	github.com/git-pkgs/dependents v0.2.0
