@@ -618,11 +618,6 @@ var transientWorkspaceFiles = []string{
 
 var transientWorkspaceDirs = []string{"batches", "dep", "verify"}
 
-func prepareWorkspace(ws string) error {
-	_, err := prepareWorkspaceUnder(filepath.Dir(ws), filepath.Base(ws))
-	return err
-}
-
 func addBackendRecoveries(meta map[string]any, steps []string) {
 	if len(steps) == 0 {
 		return

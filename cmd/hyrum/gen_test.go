@@ -149,7 +149,7 @@ func TestPrepareWorkspaceRemovesTransientArtifacts(t *testing.T) {
 		}
 	}
 
-	if err := prepareWorkspace(ws); err != nil {
+	if _, err := prepareWorkspaceUnder(filepath.Dir(ws), filepath.Base(ws)); err != nil {
 		t.Fatal(err)
 	}
 	for _, name := range transientWorkspaceFiles {
