@@ -33,7 +33,7 @@ require (
 	github.com/git-pkgs/codemeta v0.3.0 // indirect
 	github.com/git-pkgs/gitignore v1.3.0 // indirect
 	github.com/git-pkgs/licensecheck v0.4.1 // indirect
-	github.com/git-pkgs/magic v0.5.0 // indirect
+	github.com/git-pkgs/magic v0.6.0 // indirect
 	github.com/git-pkgs/pom v0.1.8 // indirect
 	github.com/git-pkgs/roles v0.1.3 // indirect
 	github.com/git-pkgs/skills v0.2.0 // indirect
