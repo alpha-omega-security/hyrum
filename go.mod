@@ -15,7 +15,7 @@ require (
 	github.com/git-pkgs/manifests v0.12.3
 	github.com/git-pkgs/outline v0.2.3
 	github.com/git-pkgs/provides v0.2.1
-	github.com/git-pkgs/purl v0.1.22
+	github.com/git-pkgs/purl v0.1.23
 	github.com/git-pkgs/registries v0.11.0
 	github.com/git-pkgs/vers v0.7.2
 	github.com/git-pkgs/vulns v0.2.4
