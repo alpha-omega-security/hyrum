@@ -10,13 +10,13 @@ require (
 	github.com/git-pkgs/changelog v0.2.1
 	github.com/git-pkgs/clone v0.7.5
 	github.com/git-pkgs/dependents v0.2.0
-	github.com/git-pkgs/enrichment v0.7.3
+	github.com/git-pkgs/enrichment v0.7.4
 	github.com/git-pkgs/managers v0.12.0
 	github.com/git-pkgs/manifests v0.12.3
 	github.com/git-pkgs/outline v0.2.3
 	github.com/git-pkgs/provides v0.2.1
-	github.com/git-pkgs/purl v0.1.23
-	github.com/git-pkgs/registries v0.11.0
+	github.com/git-pkgs/purl v0.1.24
+	github.com/git-pkgs/registries v0.11.1
 	github.com/git-pkgs/vers v0.7.2
 	github.com/git-pkgs/vulns v0.2.4
 	go.yaml.in/yaml/v3 v3.0.5
