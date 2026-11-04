@@ -5,7 +5,7 @@ go 1.26.7
 toolchain go1.27.3
 
 require (
-	github.com/alpha-omega-security/harness v0.1.17
+	github.com/alpha-omega-security/harness v0.1.18
 	github.com/git-pkgs/brief v0.14.2
 	github.com/git-pkgs/changelog v0.2.1
 	github.com/git-pkgs/clone v0.7.5
@@ -16,7 +16,7 @@ require (
 	github.com/git-pkgs/outline v0.2.3
 	github.com/git-pkgs/provides v0.2.1
 	github.com/git-pkgs/purl v0.1.24
-	github.com/git-pkgs/registries v0.11.1
+	github.com/git-pkgs/registries v0.12.0
 	github.com/git-pkgs/vers v0.7.2
 	github.com/git-pkgs/vulns v0.2.4
 	go.yaml.in/yaml/v3 v3.0.5
