@@ -5,18 +5,18 @@ go 1.26.7
 toolchain go1.27.3
 
 require (
-	github.com/alpha-omega-security/harness v0.1.18
+	github.com/alpha-omega-security/harness v0.1.19
 	github.com/git-pkgs/brief v0.14.2
 	github.com/git-pkgs/changelog v0.2.1
 	github.com/git-pkgs/clone v0.7.5
 	github.com/git-pkgs/dependents v0.2.0
-	github.com/git-pkgs/enrichment v0.7.4
+	github.com/git-pkgs/enrichment v0.7.5
 	github.com/git-pkgs/managers v0.12.0
 	github.com/git-pkgs/manifests v0.12.3
 	github.com/git-pkgs/outline v0.2.3
 	github.com/git-pkgs/provides v0.2.1
-	github.com/git-pkgs/purl v0.1.24
-	github.com/git-pkgs/registries v0.12.0
+	github.com/git-pkgs/purl v0.2.1
+	github.com/git-pkgs/registries v0.13.0
 	github.com/git-pkgs/vers v0.7.2
 	github.com/git-pkgs/vulns v0.2.4
 	go.yaml.in/yaml/v3 v3.0.5
@@ -27,7 +27,7 @@ require (
 	github.com/apapsch/go-jsonmerge/v2 v2.0.0 // indirect
 	github.com/bazelbuild/buildtools v0.0.0-20260904073137-eaa4d125b423 // indirect
 	github.com/bmatcuk/doublestar/v4 v4.10.4 // indirect
-	github.com/ecosyste-ms/ecosystems-go v0.5.0 // indirect
+	github.com/ecosyste-ms/ecosystems-go v0.5.1 // indirect
 	github.com/git-pkgs/bibtex v0.1.0 // indirect
 	github.com/git-pkgs/citation v0.1.0 // indirect
 	github.com/git-pkgs/codemeta v0.3.0 // indirect
