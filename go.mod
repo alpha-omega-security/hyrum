@@ -12,7 +12,7 @@ require (
 	github.com/git-pkgs/dependents v0.2.0
 	github.com/git-pkgs/enrichment v0.7.5
 	github.com/git-pkgs/managers v0.12.0
-	github.com/git-pkgs/manifests v0.12.3
+	github.com/git-pkgs/manifests v0.12.4
 	github.com/git-pkgs/outline v0.2.3
 	github.com/git-pkgs/provides v0.2.1
 	github.com/git-pkgs/purl v0.2.1
