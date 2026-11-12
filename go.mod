@@ -11,7 +11,7 @@ require (
 	github.com/git-pkgs/clone v0.7.6
 	github.com/git-pkgs/dependents v0.2.0
 	github.com/git-pkgs/enrichment v0.7.5
-	github.com/git-pkgs/managers v0.12.0
+	github.com/git-pkgs/managers v0.13.0
 	github.com/git-pkgs/manifests v0.12.4
 	github.com/git-pkgs/outline v0.2.4
 	github.com/git-pkgs/provides v0.2.1
