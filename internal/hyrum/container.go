@@ -10,10 +10,10 @@ import (
 	"github.com/alpha-omega-security/hyrum/internal/safefs"
 )
 
-// DefaultRunnerImage bundles the harness backends (claude, codex, opencode),
-// brief, git-pkgs, git, and node/python/go toolchains. It is built from
-// alpha-omega-security/scrutineer/Dockerfile.runner and published per release.
-const DefaultRunnerImage = "ghcr.io/alpha-omega-security/scrutineer-runner@sha256:c3b6361ccf7a8f440f8ccdf13e88ad996fb3b17846bac032e88a9b405b707baa"
+// DefaultRunnerImage bundles the harness backends (claude, codex, copilot,
+// opencode), brief, git-pkgs, git, and python. It is built from
+// alpha-omega-security/scrutineer/Dockerfile.runner on each push to main.
+const DefaultRunnerImage = "ghcr.io/alpha-omega-security/scrutineer-runner@sha256:39f52665dc0285bae813e0c5ed3fbf946aef0c040f6232c4818c49d63ec96f4a"
 
 // Runner runs one skill and returns its parsed output. HostRunner and
 // ContainerRunner both satisfy it so the pipeline can switch on a flag.

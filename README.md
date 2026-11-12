@@ -210,7 +210,7 @@ must be on PATH and file-based logins under `~/.claude` or `~/.codex` work.
 `--container default` runs it inside
 the digest-pinned `ghcr.io/alpha-omega-security/scrutineer-runner` image
 instead: the image bundles
-all four backend CLIs plus Node, Python, and Go toolchains. The container has a
+all four backend CLIs plus `brief`, `git-pkgs`, `git`, and Python. The container has a
 fresh HOME, the target repository and reusable dependency checkout mounted
 read-only, and dropped capabilities,
 which is the recommended mode for `corpus --discover` or any target you did
