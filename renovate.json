@@ -28,6 +28,16 @@
       "depNameTemplate": "zizmor",
       "datasourceTemplate": "pypi",
       "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Update the scrutineer-runner image digest",
+      "managerFilePatterns": ["/^internal/hyrum/container\\.go$/"],
+      "matchStrings": [
+        "const DefaultRunnerImage = \"(?<depName>ghcr\\.io/alpha-omega-security/scrutineer-runner)@(?<currentDigest>sha256:[a-f0-9]{64})\""
+      ],
+      "currentValueTemplate": "latest",
+      "datasourceTemplate": "docker"
     }
   ],
   "packageRules": [
@@ -70,6 +80,12 @@
     {
       "matchManagers": ["custom.regex"],
       "minimumReleaseAge": "7 days"
+    },
+    {
+      "description": "GHCR reports no publish time for a digest, so a release age would hold this update indefinitely",
+      "matchPackageNames": ["ghcr.io/alpha-omega-security/scrutineer-runner"],
+      "minimumReleaseAge": null,
+      "schedule": ["before 6am on monday"]
     }
   ],
   "vulnerabilityAlerts": {
