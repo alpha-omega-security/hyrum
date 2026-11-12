@@ -6,7 +6,7 @@ toolchain go1.27.4
 
 require (
 	github.com/alpha-omega-security/harness v0.1.20
-	github.com/git-pkgs/brief v0.14.2
+	github.com/git-pkgs/brief v0.15.0
 	github.com/git-pkgs/changelog v0.2.1
 	github.com/git-pkgs/clone v0.7.6
 	github.com/git-pkgs/dependents v0.2.0
@@ -47,5 +47,5 @@ require (
 	github.com/pandatix/go-cvss v0.6.4 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3 // indirect
 	go.yaml.in/yaml/v3 v3.0.6 // indirect
-	golang.org/x/text v0.41.0 // indirect
+	golang.org/x/text v0.43.0 // indirect
 )
