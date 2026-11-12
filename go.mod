@@ -19,7 +19,6 @@ require (
 	github.com/git-pkgs/registries v0.13.0
 	github.com/git-pkgs/vers v0.7.2
 	github.com/git-pkgs/vulns v0.2.4
-	go.yaml.in/yaml/v3 v3.0.5
 	go.yaml.in/yaml/v4 v4.0.0
 )
 
@@ -46,4 +45,5 @@ require (
 	github.com/odvcencio/gotreesitter v0.56.0 // indirect
 	github.com/package-url/packageurl-go v0.1.7 // indirect
 	github.com/pandatix/go-cvss v0.6.4 // indirect
+	go.yaml.in/yaml/v3 v3.0.5 // indirect
 )

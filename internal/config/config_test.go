@@ -127,6 +127,24 @@ func TestParseRejectsMalformedUnknownAndIncorrectTypes(t *testing.T) {
 	}
 }
 
+func TestParseAcceptsEmptyDocument(t *testing.T) {
+	for name, body := range map[string]string{
+		"empty":        "",
+		"blank lines":  "\n\n",
+		"comment only": "# nothing configured\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg, err := Parse([]byte(body))
+			if err != nil {
+				t.Fatalf("Parse: %v", err)
+			}
+			if cfg.Backend != nil || cfg.Models != nil || cfg.Deps != nil {
+				t.Fatalf("cfg = %+v, want zero value", cfg)
+			}
+		})
+	}
+}
+
 func TestParseTypeErrorExplainsQuotedBaseline(t *testing.T) {
 	_, err := Parse([]byte("deps:\n  ws:\n    baseline: 8.17\n"))
 	if err == nil {
