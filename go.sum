@@ -1,8 +1,8 @@
 github.com/BurntSushi/toml v1.6.0 h1:dRaEfpa2VI55EwlIW72hMRHdWouJeRF7TPYhI+AUQjk=
 github.com/BurntSushi/toml v1.6.0/go.mod h1:ukJfTF/6rtPPRCnwkur4qwRxa8vTRFBF0uk2lLoLwho=
 github.com/RaveNoX/go-jsoncommentstrip v1.0.0/go.mod h1:78ihd09MekBnJnxpICcwzCMzGrKSKYe4AqU6PDYYpjk=
-github.com/alpha-omega-security/harness v0.1.20 h1:BmWRfH13mycUnzzu51mkYH0HZtoKrvkeTr82dfTsbnc=
-github.com/alpha-omega-security/harness v0.1.20/go.mod h1:A3YtZQo/uHk0t0BLNGLE8Ov9Lga7g5w0g2QYMu5z7oM=
+github.com/alpha-omega-security/harness v0.1.21 h1:iIpAbfuNSLmnyPmXqJHO4M2L/OVzfFQhZVOoSVLrabo=
+github.com/alpha-omega-security/harness v0.1.21/go.mod h1:rlD5PLSKLYxoGsx9CigCgZ87/zDCuMVKPVEFX0UZqpQ=
 github.com/apapsch/go-jsonmerge/v2 v2.0.0 h1:axGnT1gRIfimI7gJifB699GoE/oq+F2MU7Dml6nw9rQ=
 github.com/apapsch/go-jsonmerge/v2 v2.0.0/go.mod h1:lvDnEdqiQrp0O42VQGgmlKpxL1AP2+08jFMw88y4klk=
 github.com/bazelbuild/buildtools v0.0.0-20260904073137-eaa4d125b423 h1:scNMqf+FgmWYYwsX4TNjQcDLZu5kbWSwNsbrGkiF23I=
@@ -51,12 +51,12 @@ github.com/git-pkgs/provides v0.2.1 h1:oV9czeAfqA5vPNPXcodzrsXVN4QcA2J35CVtWsOW/
 github.com/git-pkgs/provides v0.2.1/go.mod h1:4sNcBAyKaZmBb6L+5s8Do8SRdCKDlUDGS4Jc8r6JXz4=
 github.com/git-pkgs/purl v0.2.1 h1:b46hRlOMbrG6aXjjFJdYixGi5WTh0TLlAnH9iNeuOS0=
 github.com/git-pkgs/purl v0.2.1/go.mod h1:l8rCfvt5iXVrFIcoQ8+vCLOaHhrtEW2id0LENP+IzMw=
-github.com/git-pkgs/registries v0.13.0 h1:5i9dHnbiXseIbXLIZ61YnuFySJ9dQX+KEu1MrmwB2BU=
-github.com/git-pkgs/registries v0.13.0/go.mod h1:1g/jXVi1M/3jWvW1Wom1NMnPrhglJ7UVEZ215l2Zh0M=
+github.com/git-pkgs/registries v0.13.1 h1:ldOwOBQx493wRoha4t7YmO7anhr5YxGPcERIDc/HgnQ=
+github.com/git-pkgs/registries v0.13.1/go.mod h1:UlX6jcAd4ftRBVVNzB4mQg32tfSNCk/L2pO4Wtplnho=
 github.com/git-pkgs/roles v0.1.3 h1:BkXoBFg0/4szCvBes8mD+UApRe1jITaZ/4bs+XtRxdw=
 github.com/git-pkgs/roles v0.1.3/go.mod h1:USQTDlh22S7jNyAxU5SwtMfXjbX0lyJpVsGLTccyYis=
-github.com/git-pkgs/skills v0.2.0 h1:WcYbOukbrQLhjrg0qocknf16MrLVF5bKdwOeNHF6we0=
-github.com/git-pkgs/skills v0.2.0/go.mod h1:fnhLBuE0+QEhLh6bb3x2IDljwu5lhJlrU+FE2LfHAk4=
+github.com/git-pkgs/skills v0.2.1 h1:Ih/qElKJ/JymRE47FImmZNChN5VFTe3vlvHDxNZL08c=
+github.com/git-pkgs/skills v0.2.1/go.mod h1:8EF6FoB3VbwQJNGqNQc/5j+mD9zP6MwnpxE70itMWqM=
 github.com/git-pkgs/spdx v0.3.6 h1:tbkqeYLKgAcDV1qPZNAkNxpNMTx9EfoNQQhcVEHApzs=
 github.com/git-pkgs/spdx v0.3.6/go.mod h1:7ughkhiQFBYsZRGCBb4pbdBYXQ3y+qZE4rg5MPGmeHs=
 github.com/git-pkgs/vers v0.7.2 h1:Ctex1O+Ai/FONmyDaw37EolBXg0og6UdxbCjjYbeRHs=
