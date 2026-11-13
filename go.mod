@@ -5,7 +5,7 @@ go 1.26.7
 toolchain go1.27.4
 
 require (
-	github.com/alpha-omega-security/harness v0.1.20
+	github.com/alpha-omega-security/harness v0.1.21
 	github.com/git-pkgs/brief v0.15.0
 	github.com/git-pkgs/changelog v0.2.1
 	github.com/git-pkgs/clone v0.7.6
@@ -16,7 +16,7 @@ require (
 	github.com/git-pkgs/outline v0.2.4
 	github.com/git-pkgs/provides v0.2.1
 	github.com/git-pkgs/purl v0.2.1
-	github.com/git-pkgs/registries v0.13.0
+	github.com/git-pkgs/registries v0.13.1
 	github.com/git-pkgs/vers v0.7.2
 	github.com/git-pkgs/vulns v0.2.4
 	go.yaml.in/yaml/v4 v4.0.0
@@ -36,7 +36,7 @@ require (
 	github.com/git-pkgs/magic v0.6.0 // indirect
 	github.com/git-pkgs/pom v0.1.8 // indirect
 	github.com/git-pkgs/roles v0.1.3 // indirect
-	github.com/git-pkgs/skills v0.2.0 // indirect
+	github.com/git-pkgs/skills v0.2.1 // indirect
 	github.com/git-pkgs/spdx v0.3.6 // indirect
 	github.com/github/go-spdx/v2 v2.8.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
