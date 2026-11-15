@@ -12,11 +12,11 @@ require (
 	github.com/git-pkgs/dependents v0.2.0
 	github.com/git-pkgs/enrichment v0.7.5
 	github.com/git-pkgs/managers v0.13.0
-	github.com/git-pkgs/manifests v0.12.4
+	github.com/git-pkgs/manifests v0.13.0
 	github.com/git-pkgs/outline v0.2.4
 	github.com/git-pkgs/provides v0.2.1
 	github.com/git-pkgs/purl v0.2.1
-	github.com/git-pkgs/registries v0.13.1
+	github.com/git-pkgs/registries v0.13.2
 	github.com/git-pkgs/vers v0.7.2
 	github.com/git-pkgs/vulns v0.2.4
 	go.yaml.in/yaml/v4 v4.0.0
@@ -34,7 +34,7 @@ require (
 	github.com/git-pkgs/gitignore v1.3.0 // indirect
 	github.com/git-pkgs/licensecheck v0.4.1 // indirect
 	github.com/git-pkgs/magic v0.6.0 // indirect
-	github.com/git-pkgs/pom v0.1.8 // indirect
+	github.com/git-pkgs/pom v0.1.9 // indirect
 	github.com/git-pkgs/roles v0.1.3 // indirect
 	github.com/git-pkgs/skills v0.2.1 // indirect
 	github.com/git-pkgs/spdx v0.3.6 // indirect
@@ -42,7 +42,7 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/oapi-codegen/nullable v1.2.0 // indirect
 	github.com/oapi-codegen/runtime v1.8.0 // indirect
-	github.com/odvcencio/gotreesitter v0.56.0 // indirect
+	github.com/odvcencio/gotreesitter v0.57.0 // indirect
 	github.com/package-url/packageurl-go v0.1.7 // indirect
 	github.com/pandatix/go-cvss v0.6.4 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3 // indirect
