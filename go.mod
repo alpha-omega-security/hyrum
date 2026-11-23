@@ -35,7 +35,7 @@ require (
 	github.com/git-pkgs/licensecheck v0.4.1 // indirect
 	github.com/git-pkgs/magic v0.6.0 // indirect
 	github.com/git-pkgs/pom v0.1.9 // indirect
-	github.com/git-pkgs/roles v0.1.3 // indirect
+	github.com/git-pkgs/roles v0.1.4 // indirect
 	github.com/git-pkgs/skills v0.2.1 // indirect
 	github.com/git-pkgs/spdx v0.3.6 // indirect
 	github.com/github/go-spdx/v2 v2.8.0 // indirect
