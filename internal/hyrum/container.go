@@ -13,7 +13,7 @@ import (
 // DefaultRunnerImage bundles the harness backends (claude, codex, copilot,
 // opencode), brief, git-pkgs, git, and python. It is built from
 // alpha-omega-security/scrutineer/Dockerfile.runner on each push to main.
-const DefaultRunnerImage = "ghcr.io/alpha-omega-security/scrutineer-runner@sha256:8ce0e5c2817638ede74609092a454cdc5f787683a197ccf41661d42658a58e5d"
+const DefaultRunnerImage = "ghcr.io/alpha-omega-security/scrutineer-runner@sha256:69c817e0fa513c4ce33937da4f2e5f9df43f7dc8e17a15563b3320c81cd62c5b"
 
 // Runner runs one skill and returns its parsed output. HostRunner and
 // ContainerRunner both satisfy it so the pipeline can switch on a flag.
