@@ -40,7 +40,7 @@ require (
 	github.com/git-pkgs/spdx v0.3.6 // indirect
 	github.com/github/go-spdx/v2 v2.8.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/klauspost/compress v1.20.3 // indirect
+	github.com/klauspost/compress v1.20.4 // indirect
 	github.com/oapi-codegen/nullable v1.2.0 // indirect
 	github.com/oapi-codegen/runtime v1.9.0 // indirect
 	github.com/odvcencio/gotreesitter v0.57.0 // indirect
