@@ -16,7 +16,7 @@ require (
 	github.com/git-pkgs/outline v0.2.4
 	github.com/git-pkgs/provides v0.2.1
 	github.com/git-pkgs/purl v0.2.1
-	github.com/git-pkgs/registries v0.13.2
+	github.com/git-pkgs/registries v0.14.0
 	github.com/git-pkgs/vers v0.7.2
 	github.com/git-pkgs/vulns v0.2.4
 	go.yaml.in/yaml/v4 v4.0.0
@@ -40,12 +40,14 @@ require (
 	github.com/git-pkgs/spdx v0.3.6 // indirect
 	github.com/github/go-spdx/v2 v2.8.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
+	github.com/klauspost/compress v1.20.3 // indirect
 	github.com/oapi-codegen/nullable v1.2.0 // indirect
 	github.com/oapi-codegen/runtime v1.9.0 // indirect
 	github.com/odvcencio/gotreesitter v0.57.0 // indirect
 	github.com/package-url/packageurl-go v0.1.7 // indirect
 	github.com/pandatix/go-cvss v0.6.4 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3 // indirect
+	github.com/ulikunitz/xz v0.5.17 // indirect
 	go.yaml.in/yaml/v3 v3.0.6 // indirect
 	golang.org/x/text v0.44.0 // indirect
 )
