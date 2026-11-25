@@ -8,7 +8,7 @@ require (
 	github.com/alpha-omega-security/harness v0.1.21
 	github.com/git-pkgs/brief v0.15.0
 	github.com/git-pkgs/changelog v0.2.1
-	github.com/git-pkgs/clone v0.7.6
+	github.com/git-pkgs/clone v0.7.8
 	github.com/git-pkgs/dependents v0.2.0
 	github.com/git-pkgs/enrichment v0.7.5
 	github.com/git-pkgs/managers v0.13.0
