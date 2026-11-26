@@ -23,8 +23,8 @@ github.com/git-pkgs/changelog v0.2.1 h1:xQ6j4Zg3/JJ8zevD/eG7ff7vhLRALN9hTri5UZiv
 github.com/git-pkgs/changelog v0.2.1/go.mod h1:mKDtTTEk6UucEH98JiqowF+bIDfL6QTxH0pfO5j1UNE=
 github.com/git-pkgs/citation v0.1.0 h1:0toQBjxVOtaUsxRtcDJL9uZ6SYFb6IgbHgKpTpP0cv0=
 github.com/git-pkgs/citation v0.1.0/go.mod h1:4vrS78/jjHeusS+eozjP/d3pX2NogEi1R/7gLVqkgqs=
-github.com/git-pkgs/clone v0.7.6 h1:oSO2Oav2gjgz0qmmwv4AZCS9zfI733pYL4iISO8dlRU=
-github.com/git-pkgs/clone v0.7.6/go.mod h1:Xf34SFaiyEFZ0/q292AowAaqtgkNabh4rtVot8NGPYc=
+github.com/git-pkgs/clone v0.7.8 h1:nCKxOWvpE8+lwsYT7PNZEGQt71uuhiz/tSQ6MAgBCaM=
+github.com/git-pkgs/clone v0.7.8/go.mod h1:rrmVI9sflIGa8eEjOEK1vHEFSulYjVXZKJrJJ/EbgvI=
 github.com/git-pkgs/codemeta v0.3.0 h1:zkWndmquCv2tPIHCHb+JXx3eKjmxRoD48f4/3sNAlGw=
 github.com/git-pkgs/codemeta v0.3.0/go.mod h1:R1vGXVohTa22vVKaV3/8xVs3+tcgvqc4ziaMikdXc/I=
 github.com/git-pkgs/dependents v0.2.0 h1:bWk/BiIOnNpQuYP/SEIEyoJCSCARum5hLpHVwm2P5E0=
